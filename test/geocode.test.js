@@ -7,7 +7,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { searchPlaces, parseGsiResponse, findPrefectureName, normalizeQuery } = require('../src/geocode.js');
+const { searchPlaces, parseGsiResponse, findPrefectureName, normalizeQuery, normalizePostalCode, buildPostalAddress } = require('../src/geocode.js');
 
 // 国土地理院の応答と同じ形の見本（座標は [経度, 緯度]）
 const SAMPLE_RESPONSE = [
@@ -139,4 +139,93 @@ test('searchPlaces の失敗の文に、入力した地名を含めない', asyn
     assert.equal(error.message.includes('架空町'), false);
     return true;
   });
+});
+
+// 郵便番号の検索で使う、zipcloud の応答の見本（住所は架空）
+const ZIPCLOUD_SAMPLE = {
+  status: 200,
+  results: [{ zipcode: '0000001', address1: '架空県', address2: '架空市', address3: '架空町' }],
+};
+
+/**
+ * 郵便番号の検索用の偽物の fetch を作る（zipcloud と国土地理院を、URL で見分けて応答する）。
+ * @param {object} options 応答の中身
+ * @param {unknown} [options.zip] zipcloud の応答
+ * @param {Object<string, unknown>} [options.gsi] 国土地理院の応答（検索した住所 → 応答）
+ * @returns {{fetchFn: Function, calls: string[]}} 偽物の fetch と、呼ばれた URL の記録
+ */
+function createPostalFakeFetch({ zip = ZIPCLOUD_SAMPLE, gsi = {} } = {}) {
+  const calls = [];
+  const fetchFn = async (url) => {
+    calls.push(url);
+    if (url.startsWith('https://zipcloud.ibsnet.co.jp/')) return { ok: true, status: 200, json: async () => zip };
+    const address = decodeURIComponent(new URL(url).searchParams.get('q'));
+    return { ok: true, status: 200, json: async () => gsi[address] || [] };
+  };
+  return { fetchFn, calls };
+}
+
+/**
+ * 国土地理院の応答の1件を作る。
+ * @param {string} title 名前
+ * @returns {object} Feature
+ */
+function gsiFeature(title) {
+  return { geometry: { coordinates: [139.75, 35.68], type: 'Point' }, type: 'Feature', properties: { title, addressCode: '' } };
+}
+
+test('normalizePostalCode は全角・ハイフン・「〒」・空白をそろえて7桁にし、郵便番号でなければ null にする', () => {
+  assert.equal(normalizePostalCode('1000001'), '1000001');
+  assert.equal(normalizePostalCode('100-0001'), '1000001');
+  assert.equal(normalizePostalCode('〒100-0001'), '1000001');
+  assert.equal(normalizePostalCode('〒 １００－０００１'), '1000001');
+  assert.equal(normalizePostalCode('100ー0001'), '1000001'); // 長音「ー」をハイフンのつもりで打った場合
+  assert.equal(normalizePostalCode('札幌市'), null);
+  assert.equal(normalizePostalCode('100-000'), null);
+  assert.equal(normalizePostalCode('10000011'), null);
+  assert.equal(normalizePostalCode(undefined), null);
+});
+
+test('buildPostalAddress は町域の決まり文句とかっこの注記を除く', () => {
+  const base = { address1: '架空県', address2: '架空市' };
+  assert.deepEqual(buildPostalAddress({ ...base, address3: '架空町' }), { full: '架空県架空市架空町', city: '架空県架空市' });
+  assert.deepEqual(buildPostalAddress({ ...base, address3: '以下に掲載がない場合' }), { full: '架空県架空市', city: '架空県架空市' });
+  assert.deepEqual(buildPostalAddress({ ...base, address3: '架空通（１〜１９丁目）' }), { full: '架空県架空市架空通', city: '架空県架空市' });
+  assert.deepEqual(buildPostalAddress({ ...base, address3: '架空町の次に番地がくる場合' }), { full: '架空県架空市', city: '架空県架空市' });
+  assert.equal(buildPostalAddress(null), null);
+  assert.equal(buildPostalAddress({ address1: '架空県' }), null);
+});
+
+test('searchPlaces は郵便番号なら、zipcloud へ7桁の数字だけを送り、得た住所で国土地理院を探す', async () => {
+  const { fetchFn, calls } = createPostalFakeFetch({ gsi: { 架空県架空市架空町: [gsiFeature('架空県架空市架空町')] } });
+  const places = await searchPlaces('〒000-0001', fetchFn);
+  assert.equal(places.length, 1);
+  assert.deepEqual([places[0].name, places[0].prefecture, places[0].shortName], ['架空県架空市架空町', '', '架空県架空市架空町']);
+  assert.equal(calls[0], 'https://zipcloud.ibsnet.co.jp/api/search?zipcode=0000001');
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((url) => !url.includes('〒') && !url.includes('000-0001')), '入力の原文を送らない');
+});
+
+test('searchPlaces は町域で見つからなければ、市区町村の住所で探し直す', async () => {
+  const { fetchFn, calls } = createPostalFakeFetch({ gsi: { 架空県架空市: [gsiFeature('架空県架空市')] } });
+  const places = await searchPlaces('000-0001', fetchFn);
+  assert.deepEqual(places.map((place) => place.name), ['架空県架空市']);
+  assert.equal(calls.length, 3); // zipcloud、町域まで、市区町村まで
+});
+
+test('searchPlaces は郵便番号が見つからないとき空の配列を返し、zipcloud の失敗は Error にする', async () => {
+  assert.deepEqual(await searchPlaces('000-0001', createPostalFakeFetch({ zip: { status: 200, results: null } }).fetchFn), []);
+  await assert.rejects(
+    searchPlaces('000-0001', createPostalFakeFetch({ zip: { status: 400, results: null, message: '入力値が不正です' } }).fetchFn),
+    (error) => /^郵便番号の検索に失敗/.test(error.message) && !error.message.includes('0001')
+  );
+  const failingFetch = async () => { throw new TypeError('network 000-0001'); };
+  await assert.rejects(searchPlaces('000-0001', failingFetch), (error) => /郵便番号の検索に失敗/.test(error.message) && !error.message.includes('0001'));
+});
+
+test('地名の検索は、郵便番号の形でなければ zipcloud を使わない', async () => {
+  const { fetchFn, calls } = createFakeFetch({ body: SAMPLE_RESPONSE });
+  await searchPlaces('札幌市', fetchFn);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0].startsWith('https://msearch.gsi.go.jp/'));
 });

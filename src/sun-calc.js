@@ -203,7 +203,27 @@
     };
   }
 
-  const api = { computeSunTimes, isValidDate, SUN_ALTITUDE_AT_HORIZON_DEG };
+  /**
+   * ある瞬間に、太陽が真上に来る地表の点（太陽直下点）を求める。地図に昼夜の境の線を引くのに使う。
+   * @param {number} timestampMs その瞬間（1970-01-01 0:00 UTC からのミリ秒。Date.now() や Date.UTC() の値）
+   * @returns {{latitude: number, longitude: number}} 太陽直下点の緯度（度、太陽の赤緯と同じ）と経度（度、-180〜180、東が正）
+   * 注意：引数が数でなければ RangeError を投げる
+   */
+  function getSubsolarPoint(timestampMs) {
+    if (!Number.isFinite(timestampMs)) {
+      throw new RangeError('時刻が正しくありません');
+    }
+    const julianDay = timestampMs / 86400000 + JULIAN_DAY_UNIX_EPOCH;
+    const { declinationDeg, equationOfTimeMin } = getSolarPosition(julianDay);
+    // その日の 0時（世界時）からの分。太陽直下点は、世界時の正午（720分）に経度 0 度の上にあり、4分ごとに 1 度ずつ西へ動く
+    const utcMinutes = (((timestampMs / 60000) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+    const rawLongitudeDeg = (MINUTES_PER_DAY / 2 - equationOfTimeMin - utcMinutes) / 4;
+    // -180〜180 度の範囲に収める
+    const longitude = ((((rawLongitudeDeg + 180) % 360) + 360) % 360) - 180;
+    return { latitude: declinationDeg, longitude };
+  }
+
+  const api = { computeSunTimes, getSubsolarPoint, isValidDate, SUN_ALTITUDE_AT_HORIZON_DEG };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

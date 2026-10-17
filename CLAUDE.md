@@ -17,8 +17,8 @@
 ## このプロジェクト固有の決まり
 
 - 時刻の計算は `src/sun-calc.js` の NOAA の式。直したら、国立天文台「日の出入り」の表（https://eco.mtk.nao.ac.jp/koyomi/dni/）の値と ±1 分で合うことをテストで確かめる
-- 通信先は国土地理院の地名検索 API だけ。`index.html` の Content-Security-Policy の `connect-src` を広げるときは依頼者に確認する
-- 地名は外部へ送るだけで、保存・ログ出力しない。API から来た文字は `textContent` で表示する（`innerHTML` を使わない）
+- 通信先は次の3つだけ（`index.html` の Content-Security-Policy の `connect-src`）：国土地理院の地名検索 API（地名）／zipcloud（郵便番号 → 住所）／Open-Meteo（いまの天気）。後ろの2つは、2026-10-18 に依頼者が許可した。`connect-src` を広げるときは、そのつど依頼者に確認する
+- 外へ送るのは、地名・郵便番号・緯度経度（天気には小数2桁に丸めて）だけで、保存・ログ出力しない。API から来た文字は `textContent` で表示する（`innerHTML` を使わない）
 - 時刻は日本時間（UTC+9）。対象は日本国内だけ
 - 各ファイルは `(function (root) { … })` で包み、ブラウザでは `window.<名前>`、Node では `module.exports` に出す（両方で使うため）
 - 全文を読まない大きなファイル：なし（増えたらここに書く）

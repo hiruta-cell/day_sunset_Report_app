@@ -28,6 +28,8 @@
   --map-sea: #dbe9f4;             /* 日本地図 */
   --map-land: #ece0c2;
   --map-land-stroke: #b9a679;
+  --map-day: rgba(255, 255, 255, 0.22);   /* 地図の昼の側（明るく） */
+  --map-night: rgba(18, 28, 70, 0.4);     /* 地図の夜の側（暗く） */
   --sky-top: #7fb4e6;             /* 太陽の通り道の図 */
   --sky-bottom: #fbd9a6;
   --ground: #7c9a68;
@@ -64,6 +66,8 @@
     --map-sea: #1b2733;
     --map-land: #3c3b33;
     --map-land-stroke: #66624f;
+    --map-day: rgba(255, 244, 214, 0.12);
+    --map-night: rgba(0, 0, 12, 0.5);
     --sky-top: #1e2a4a;
     --sky-bottom: #6a4140;
     --ground: #2f4a3a;
@@ -241,11 +245,29 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accen
 .japan-map { display: block; width: 100%; height: auto; }
 .map-note { margin-top: 4px; font-size: 0.78rem; color: var(--color-muted); }
 
+/* 地図の下の説明・凡例 */
+.map-caption { display: block; margin-top: 4px; font-size: 0.78rem; color: var(--color-muted); }
+.map-daylight { display: block; color: var(--color-text); }
+.map-legend { display: flex; flex-wrap: wrap; gap: 2px 12px; margin: 4px 0; padding: 0; list-style: none; }
+.map-legend li { display: flex; align-items: center; gap: 4px; }
+.swatch { display: inline-block; width: 16px; height: 10px; border-radius: 2px; border: 1px solid var(--map-land-stroke); }
+.swatch-day { background: var(--map-land); }
+.swatch-night { background: linear-gradient(var(--map-night), var(--map-night)), var(--map-land); }
+.swatch-sunrise { height: 0; border: 0; border-top: 3px solid var(--color-accent); border-radius: 0; }
+.swatch-sunset { height: 0; border: 0; border-top: 3px solid var(--color-sunset); border-radius: 0; }
+.map-note { display: block; }
+
 /* 日本地図の色 */
 .map-sea { fill: var(--map-sea); }
 .map-land { fill: var(--map-land); stroke: var(--map-land-stroke); stroke-width: 0.8; stroke-linejoin: round; }
 .map-inset-frame { fill: var(--map-sea); stroke: var(--map-land-stroke); stroke-width: 0.8; }
 .map-inset-label { fill: var(--color-muted); font-size: 7px; }
+.map-day { fill: var(--map-day); }
+.map-night { fill: var(--map-night); }
+.map-line-sunrise, .map-line-sunset { fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.map-line-sunrise { stroke: var(--color-accent); }
+.map-line-sunset { stroke: var(--color-sunset); }
+.map-line-label { fill: var(--color-text); font-size: 7px; font-weight: bold; paint-order: stroke; stroke: var(--map-sea); stroke-width: 2.5px; }
 .map-marker { fill: var(--color-accent); stroke: #ffffff; stroke-width: 1.5; }
 .map-marker-ring {
   fill: none;
@@ -260,6 +282,17 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accen
 .result-place .badge { margin-right: 8px; vertical-align: middle; }
 .result-date { margin: 4px 0 0; font-size: 1.05rem; }
 .result-coords { margin: 2px 0 0; font-size: 0.85rem; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
+/* いまの天気 */
+.weather-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--color-border); }
+.weather-title { margin: 0 0 4px; font-size: 0.9rem; font-weight: bold; }
+.weather-block .note { margin: 0; }
+.weather-grid { display: grid; grid-template-columns: repeat(3, auto); gap: 8px 16px; justify-content: start; margin: 0; }
+.weather-item dt { font-size: 0.78rem; color: var(--color-muted); }
+.weather-item dd { margin: 0; font-size: 1.05rem; font-weight: bold; font-variant-numeric: tabular-nums; }
+.weather-wind dd { display: flex; align-items: center; gap: 4px; }
+.wind-arrow { width: 22px; height: 22px; color: var(--color-length); }
+.wind-arrow.is-calm { display: none; }
 
 /* 時刻の箱 */
 .sun-times {
@@ -369,6 +402,7 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accen
   .result-head { grid-template-columns: 1fr; }
   .japan-map-figure { max-width: 280px; margin: 0 auto; }
   .sun-times { grid-template-columns: repeat(2, 1fr); }
+  .weather-grid { grid-template-columns: repeat(3, auto); gap: 8px 12px; }
   .place-results button { grid-template-columns: 5.5em 1fr; }
   .place-coords { display: none; }
   .month-header { flex-wrap: wrap; }

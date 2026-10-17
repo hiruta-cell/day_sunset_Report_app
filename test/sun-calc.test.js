@@ -7,7 +7,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { computeSunTimes, isValidDate } = require('../src/sun-calc.js');
+const { computeSunTimes, getSubsolarPoint, isValidDate } = require('../src/sun-calc.js');
 
 // 許す誤差（分）。暦の値は分単位に丸めてあるので、計算値（小数）とは最大 1 分ずれる
 const TOLERANCE_MINUTES = 1;
@@ -73,4 +73,21 @@ test('isValidDate はうるう年と範囲を正しく判定する', () => {
   assert.equal(isValidDate(2026, 2, 29), false);
   assert.equal(isValidDate(1900, 1, 1), false);
   assert.equal(isValidDate(2100, 1, 1), false);
+});
+
+test('getSubsolarPoint は東京の南中の瞬間に、東京の経度の真上を示す', () => {
+  const tokyo = { latitude: 35.6581, longitude: 139.7414 };
+  const times = computeSunTimes({ year: 2026, month: 6, day: 21 }, tokyo.latitude, tokyo.longitude, JST);
+  const noonUtcMs = Date.UTC(2026, 5, 21, 0, 0) + (times.solarNoonMinutes - JST * 60) * 60000;
+  const subsolar = getSubsolarPoint(noonUtcMs);
+  assert.ok(Math.abs(subsolar.longitude - tokyo.longitude) < 0.1, `経度 ${subsolar.longitude}`);
+  assert.ok(Math.abs(subsolar.latitude - 23.4) < 0.1, `緯度 ${subsolar.latitude}`);
+});
+
+test('getSubsolarPoint は夏至・冬至・春分の赤緯と、経度の範囲を正しく返す', () => {
+  assert.ok(Math.abs(getSubsolarPoint(Date.UTC(2026, 11, 21, 12)).latitude + 23.4) < 0.1);
+  assert.ok(Math.abs(getSubsolarPoint(Date.UTC(2026, 2, 20, 12)).latitude) < 0.6);
+  const subsolar = getSubsolarPoint(Date.UTC(2026, 5, 21, 18)); // 世界時18時 → 太陽は経度 -90 度付近の真上
+  assert.ok(Math.abs(subsolar.longitude + 90) < 1.5, `経度 ${subsolar.longitude}`);
+  assert.throws(() => getSubsolarPoint(Number.NaN), RangeError);
 });

@@ -1,16 +1,30 @@
 /*
  * geocode.js
  * 目的：市区町村名・地名から、候補の地点（名前・緯度・経度）を探す。
- * 使う外部サービス：国土地理院の地名検索 API（https://msearch.gsi.go.jp/address-search/AddressSearch）。
- *   無料・API キー不要。日本国内の地名だけを返す。
+ * 使う外部サービス：
+ *   ・国土地理院の地名検索 API（https://msearch.gsi.go.jp/address-search/AddressSearch）。無料・API キー不要。日本国内の地名だけを返す。
+ *   ・郵便番号の検索には、郵便番号から住所を調べる zipcloud（https://zipcloud.ibsnet.co.jp/api/search）も使う。無料・API キー不要。
+ *     住所を得たあと、国土地理院で座標にする。依頼者の許可を得て、index.html の connect-src に足している（2026-10-18）。
  * 使い方：ブラウザでは <script> で読み込むと window.Geocode に入る。Node では require('./geocode.js')。
- * 注意：外部へ送るのは、検索した地名だけ。地名を保存・ログ出力しない。エラーの文に入力の原文を入れない。
+ * 注意：外部へ送るのは、検索した地名（郵便番号のときは7桁の数字）だけ。保存・ログ出力しない。エラーの文に入力の原文を入れない。
  */
 (function (root) {
   'use strict';
 
   // 国土地理院の地名検索 API の URL（?q= の後に地名を付ける）
   const GSI_SEARCH_URL = 'https://msearch.gsi.go.jp/address-search/AddressSearch';
+
+  // 郵便番号から住所を調べるサービス（zipcloud）の URL（?zipcode= の後に7桁の数字を付ける）
+  const ZIPCLOUD_URL = 'https://zipcloud.ibsnet.co.jp/api/search';
+
+  // 1つの郵便番号から調べる住所の最大の数（1つの番号が複数の町域に当たることがある）
+  const MAX_POSTAL_ADDRESSES = 5;
+
+  // 郵便番号の町域の欄にある、町域の名前ではない決まり文句。住所に含めない
+  const POSTAL_TOWN_PLACEHOLDER_PATTERN = /以下に掲載がない場合|の次に番地がくる場合|一円/;
+
+  // 郵便番号の町域の欄にある、かっこの中の注記（「（１〜１９丁目）」など）。住所に含めない
+  const POSTAL_TOWN_NOTE_PATTERN = /[（(][^）)]*[）)]/g;
 
   // 検索する地名の最大の文字数（長すぎる入力を外へ送らないため）
   const MAX_QUERY_LENGTH = 50;
@@ -66,15 +80,14 @@
   }
 
   /**
-   * 国土地理院の応答（GeoJSON の Feature の配列）を、候補の一覧に変える。
+   * 国土地理院の応答（GeoJSON の Feature の配列）を、候補の一覧に変える（絞り込みや件数の制限はしない）。
    * @param {unknown} features API の応答を JSON として読んだもの
    * @returns {Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>}
-   *   候補（最大 MAX_RESULTS 件、同じ名前は1件だけ）。name は県名を付けた名前（「北海道札幌市」）、
-   *   shortName は県名を除いた名前（「札幌市」）、prefecture は県名（分からなければ空）。
-   *   都道府県・市区町村の名前が1件でもあればそれだけを返し、1件もないときだけ消防署などの施設の名前を返す（API の順のまま）
+   *   候補（同じ名前は1件だけ、API の順のまま）。name は県名を付けた名前（「北海道札幌市」）、
+   *   shortName は県名を除いた名前（「札幌市」）、prefecture は県名（分からなければ空）
    * 注意：形が違うもの・日本の範囲外の座標は捨てる。応答が配列でなければ空の配列を返す
    */
-  function parseGsiResponse(features) {
+  function parseGsiFeatures(features) {
     if (!Array.isArray(features)) return [];
     const places = [];
     const seenNames = new Set();
@@ -96,6 +109,18 @@
       }
       places.push({ name: prefecture + shortName, shortName, prefecture, latitude, longitude });
     }
+    return places;
+  }
+
+  /**
+   * 国土地理院の応答を、画面に出す候補の一覧に変える。
+   * @param {unknown} features API の応答を JSON として読んだもの
+   * @returns {Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>}
+   *   parseGsiFeatures の結果から、最大 MAX_RESULTS 件。
+   *   都道府県・市区町村の名前が1件でもあればそれだけを返し、1件もないときだけ消防署などの施設の名前を返す（API の順のまま）
+   */
+  function parseGsiResponse(features) {
+    const places = parseGsiFeatures(features);
     const administrative = places.filter((place) => ADMINISTRATIVE_SUFFIX_PATTERN.test(place.name));
     return (administrative.length > 0 ? administrative : places).slice(0, MAX_RESULTS);
   }
@@ -118,10 +143,107 @@
   }
 
   /**
-   * 地名で候補の地点を探す。
-   * @param {string} query 市区町村名などの地名
+   * 郵便番号らしい入力を、7桁の数字にそろえる（全角・ハイフン・「〒」・空白に対応）。
+   * @param {unknown} query 入力された文字
+   * @returns {string|null} 7桁の数字（「1000001」）。郵便番号の形でなければ null
+   */
+  function normalizePostalCode(query) {
+    if (typeof query !== 'string') return null;
+    // 全角の数字・ハイフンを半角にし、長音「ー」などのハイフンに似た文字を「-」にそろえる
+    const text = query.normalize('NFKC').replace(/[〒\s]/g, '').replace(/[ー−‐‑–—]/g, '-');
+    const match = /^(\d{3})-?(\d{4})$/.exec(text);
+    return match ? `${match[1]}${match[2]}` : null;
+  }
+
+  /**
+   * 通信して JSON を受け取る（時間の上限つき。クッキー・参照元は送らない）。
+   * @param {string} url 問い合わせ先
+   * @param {Function} doFetch 通信に使う関数
+   * @param {string} label 失敗の文の先頭に使う名前（「地名の検索」「郵便番号の検索」）
+   * @returns {Promise<unknown>} 応答を JSON として読んだもの
+   * 注意：失敗の文に入力の原文・URL を入れない
+   */
+  async function requestJson(url, doFetch, label) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+    try {
+      const response = await doFetch(url, {
+        signal: controller ? controller.signal : undefined,
+        credentials: 'omit', // クッキーなどを送らない
+        referrerPolicy: 'no-referrer', // 開いているページの場所を送らない
+      });
+      if (!response.ok) {
+        throw new Error(`${label}に失敗しました（状態 ${response.status}）`);
+      }
+      return await response.json();
+    } catch (error) {
+      if (error && error.name === 'AbortError') {
+        throw new Error(`${label}が時間内に終わりませんでした。通信の状態を確かめてください`);
+      }
+      if (error && error.message && error.message.startsWith(`${label}に失敗`)) throw error;
+      throw new Error(`${label}に失敗しました。通信の状態を確かめてください`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * zipcloud の1件の結果から、国土地理院で探す住所の文字を作る。
+   * @param {unknown} item zipcloud の results の1件（address1＝都道府県・address2＝市区町村・address3＝町域）
+   * @returns {{full: string, city: string}|null} full は町域まで、city は市区町村まで。形が違えば null
+   */
+  function buildPostalAddress(item) {
+    if (!item || typeof item.address1 !== 'string' || typeof item.address2 !== 'string') return null;
+    const town = typeof item.address3 === 'string' && !POSTAL_TOWN_PLACEHOLDER_PATTERN.test(item.address3)
+      ? item.address3.replace(POSTAL_TOWN_NOTE_PATTERN, '')
+      : '';
+    const city = `${item.address1}${item.address2}`;
+    return city.length === 0 ? null : { full: `${city}${town}`, city };
+  }
+
+  /**
+   * 住所の文字を国土地理院で探し、一番合う1件を返す（名前が住所と同じものを優先）。
+   * @param {string} address 住所（「東京都千代田区千代田」など）
+   * @param {Function} doFetch 通信に使う関数
+   * @returns {Promise<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}|null>} 見つからなければ null
+   */
+  async function findPlaceByAddress(address, doFetch) {
+    const places = parseGsiFeatures(await requestJson(`${GSI_SEARCH_URL}?q=${encodeURIComponent(address)}`, doFetch, '地名の検索'));
+    return places.find((place) => place.name === address) || places[0] || null;
+  }
+
+  /**
+   * 郵便番号で候補の地点を探す（zipcloud で住所にし、国土地理院で座標にする）。
+   * @param {string} postalCode 7桁の数字（normalizePostalCode の結果）
+   * @param {Function} doFetch 通信に使う関数
+   * @returns {Promise<Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>>}
+   *   候補（最大 MAX_POSTAL_ADDRESSES 件）。見つからなければ空
+   */
+  async function searchByPostalCode(postalCode, doFetch) {
+    const body = await requestJson(`${ZIPCLOUD_URL}?zipcode=${postalCode}`, doFetch, '郵便番号の検索');
+    if (!body || body.status !== 200) {
+      throw new Error('郵便番号の検索に失敗しました');
+    }
+    const results = Array.isArray(body.results) ? body.results : [];
+    const addresses = results.map(buildPostalAddress).filter(Boolean).slice(0, MAX_POSTAL_ADDRESSES);
+    const places = [];
+    const seenNames = new Set();
+    for (const address of addresses) {
+      // 町域まで書いた住所で見つからなければ、市区町村までの住所で探す
+      const place = (await findPlaceByAddress(address.full, doFetch)) || (await findPlaceByAddress(address.city, doFetch));
+      if (place && !seenNames.has(place.name)) {
+        seenNames.add(place.name);
+        places.push(place);
+      }
+    }
+    return places;
+  }
+
+  /**
+   * 地名または郵便番号で、候補の地点を探す。
+   * @param {string} query 市区町村名などの地名、または郵便番号（「100-0001」「1000001」など）
    * @param {Function} [fetchFn] 通信に使う関数（省略時は fetch。テストでは偽物を渡す）
-   * @returns {Promise<Array<{name: string, latitude: number, longitude: number}>>} 候補の一覧（見つからなければ空）
+   * @returns {Promise<Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>>} 候補の一覧（見つからなければ空）
    * 注意：失敗したときは Error を投げる。文には入力の原文を入れない
    */
   async function searchPlaces(query, fetchFn) {
@@ -130,31 +252,24 @@
       throw new Error(`地名を1〜${MAX_QUERY_LENGTH}文字で入力してください`);
     }
     const doFetch = fetchFn || root.fetch.bind(root);
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
-    try {
-      const url = `${GSI_SEARCH_URL}?q=${encodeURIComponent(normalized)}`;
-      const response = await doFetch(url, {
-        signal: controller ? controller.signal : undefined,
-        credentials: 'omit', // クッキーなどを送らない
-        referrerPolicy: 'no-referrer', // 開いているページの場所を送らない
-      });
-      if (!response.ok) {
-        throw new Error(`地名の検索に失敗しました（状態 ${response.status}）`);
-      }
-      return parseGsiResponse(await response.json());
-    } catch (error) {
-      if (error && error.name === 'AbortError') {
-        throw new Error('地名の検索が時間内に終わりませんでした。通信の状態を確かめてください');
-      }
-      if (error && /^地名の検索に失敗/.test(error.message)) throw error;
-      throw new Error('地名の検索に失敗しました。通信の状態を確かめてください');
-    } finally {
-      if (timer) clearTimeout(timer);
+    const postalCode = normalizePostalCode(normalized);
+    if (postalCode !== null) {
+      return searchByPostalCode(postalCode, doFetch);
     }
+    return parseGsiResponse(await requestJson(`${GSI_SEARCH_URL}?q=${encodeURIComponent(normalized)}`, doFetch, '地名の検索'));
   }
 
-  const api = { searchPlaces, parseGsiResponse, findPrefectureName, normalizeQuery, isInJapan, MAX_QUERY_LENGTH };
+  const api = {
+    searchPlaces,
+    parseGsiResponse,
+    parseGsiFeatures,
+    findPrefectureName,
+    normalizeQuery,
+    normalizePostalCode,
+    buildPostalAddress,
+    isInJapan,
+    MAX_QUERY_LENGTH,
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

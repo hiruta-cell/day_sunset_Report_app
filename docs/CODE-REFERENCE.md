@@ -15,18 +15,20 @@
 
 | ファイル | 機能 |
 |---|---|
-| `index.html` | 画面の構造（ヘッダー・検索・日付・日本地図つきの結果・太陽の通り道・月の表）。CSP で通信先を国土地理院だけに絞る。`src/` の6つを順に読み込む |
+| `index.html` | 画面の構造（ヘッダー・検索・日付・日本地図つきの結果・太陽の通り道・月の表）。CSP で通信先を国土地理院・zipcloud・Open-Meteo の3つだけに絞る。`src/` の7つを順に読み込む |
 | `style.css` | 見た目。朝焼けのヘッダー・カード・地図と図の色。CSS 変数・ダーク表示・動きを減らす設定・スマホ幅（560px 以下）の調整 |
-| `src/sun-calc.js` | 緯度・経度・日付から、日の出・南中・日の入りの時刻を計算する（`window.SunCalc`） |
-| `src/geocode.js` | 国土地理院の地名検索 API で、地名から候補の地点を探す。候補には都道府県名を付ける（`window.Geocode`） |
+| `src/sun-calc.js` | 緯度・経度・日付から、日の出・南中・日の入りの時刻を計算する。ある瞬間の太陽直下点も求める（`window.SunCalc`） |
+| `src/geocode.js` | 国土地理院の地名検索 API で、地名から候補の地点を探す。候補には都道府県名を付ける。郵便番号は zipcloud で住所にして探す（`window.Geocode`） |
 | `src/report.js` | 時刻の書式・1日の行・月の表・前日との昼の長さの差・CSV を作る（`window.SunReport`） |
-| `src/japan-map.js` | 簡略化した日本地図（実際の海岸線を単純化した多角形）を SVG に描き、地点の位置に印を付ける。沖縄・奄美は右下の枠に入れる（`window.JapanMap`） |
+| `src/japan-map.js` | 簡略化した日本地図（実際の海岸線を単純化した多角形）を SVG に描き、地点の位置に印を付ける。沖縄・奄美は右下の枠に入れる。ある瞬間の昼夜（昼は明るく・夜は暗く、日の出・日の入りの線）も重ねる（`window.JapanMap`） |
+| `src/weather.js` | Open-Meteo から、地点のいまの天気・気温・風向・風速を取得し、画面に出す形にする（`window.Weather`） |
 | `src/sun-chart.js` | 太陽の通り道の弧と、一日24時間の昼夜のバーを SVG に描く（`window.SunChart`） |
-| `src/app.js` | 画面の操作（検索 → 選択 → 日付（前後の日・今日）→ 地図・結果・図・表の表示 → CSV の保存） |
-| `test/sun-calc.test.js` | 計算が国立天文台の暦と ±1 分で合うか、白夜・極夜、入力の確認 |
-| `test/geocode.test.js` | 地名の整え方、応答の読み取り・絞り込み、県名の付記、失敗の文に入力を含めないこと |
+| `src/app.js` | 画面の操作（検索 → 選択 → 日付（前後の日・今日）→ 地図・天気・結果・図・表の表示 → CSV の保存） |
+| `test/sun-calc.test.js` | 計算が国立天文台の暦と ±1 分で合うか、白夜・極夜、入力、太陽直下点の確認 |
+| `test/geocode.test.js` | 地名の整え方、応答の読み取り・絞り込み、県名の付記、郵便番号の検索（偽の通信）、失敗の文に入力を含めないこと |
 | `test/report.test.js` | 時刻の書式、月の行数、前日との差の文、CSV の形と数式の無害化 |
-| `test/japan-map.test.js` | 位置の変換、主な都市が地図の陸地の中にあること |
+| `test/japan-map.test.js` | 位置の変換、主な都市が地図の陸地の中にあること、昼夜の領域と日の出・日の入りの線 |
+| `test/weather.test.js` | 問い合わせの URL（座標の丸め）、応答の読み取り、風向・天気の名前、失敗の文に座標を含めないこと |
 | `test/sun-chart.test.js` | 太陽の弧の上の位置、昼の進み具合、昼夜のバー |
 | `package.json` | `npm test` の定義だけ（部品なし） |
 
@@ -44,8 +46,12 @@
 | src/sun-calc.js | `getSolarPosition` | 関数 | 太陽の赤緯と均時差 | 時刻の計算の材料 |
 | src/sun-calc.js | `findHorizonCrossing` | 関数 | 日の出か日の入りの時刻（白夜・極夜は null） | 時刻の計算 |
 | src/sun-calc.js | `findSolarNoon` | 関数 | 南中の時刻 | 時刻の計算 |
+| src/sun-calc.js | `getSubsolarPoint` | 関数（公開） | ある瞬間の太陽直下点（緯度＝赤緯、経度）。経度は世界時の正午に 0 度で、4分ごとに 1 度西へ動く | 地図の昼夜 |
 | src/sun-calc.js | `computeSunTimes` | 関数（公開） | 1日分の日の出・南中・日の入り・昼の長さ | 計算の入口 |
 | src/geocode.js | `GSI_SEARCH_URL` | 定数 | 国土地理院の地名検索 API の URL | 通信先 |
+| src/geocode.js | `ZIPCLOUD_URL` | 定数 | 郵便番号から住所を調べる zipcloud の URL | 通信先 |
+| src/geocode.js | `MAX_POSTAL_ADDRESSES` | 定数 | 5 | 1つの郵便番号から調べる住所の最大の数 |
+| src/geocode.js | `POSTAL_TOWN_PLACEHOLDER_PATTERN` / `POSTAL_TOWN_NOTE_PATTERN` | 定数 | 町域の決まり文句（「以下に掲載がない場合」など）・かっこの注記の形 | 住所から除く |
 | src/geocode.js | `MAX_QUERY_LENGTH` | 定数（公開） | 50 | 長すぎる入力を外へ送らない |
 | src/geocode.js | `MAX_RESULTS` | 定数 | 20 | 画面に出す候補の最大の件数 |
 | src/geocode.js | `REQUEST_TIMEOUT_MS` | 定数 | 10000 | 応答を待つ最長の時間 |
@@ -55,9 +61,15 @@
 | src/geocode.js | `JAPAN_BOUNDS` | 定数 | 日本の大まかな緯度・経度の範囲 | おかしな座標を捨てる |
 | src/geocode.js | `normalizeQuery` | 関数（公開） | 空白を取り、空・長すぎるなら null | 入力の確認 |
 | src/geocode.js | `findPrefectureName` | 関数（公開） | 名前の先頭の県名、なければ市区町村コードの上2桁から県名を求める | 県名の付記 |
+| src/geocode.js | `parseGsiFeatures` | 関数（公開） | API の応答を候補にする（重複・範囲外を捨てる。絞り込み・件数の制限はしない） | 応答の読み取り |
 | src/geocode.js | `parseGsiResponse` | 関数（公開） | API の応答を候補（name・shortName・prefecture・緯度・経度）にする（重複・範囲外を捨て、市区町村を優先） | 応答の読み取り |
 | src/geocode.js | `isInJapan` | 関数（公開） | 座標が日本の範囲か | 応答の確認 |
-| src/geocode.js | `searchPlaces` | 関数（公開） | 地名で候補を探す（失敗の文に入力を入れない） | 検索の入口 |
+| src/geocode.js | `normalizePostalCode` | 関数（公開） | 全角・ハイフン・「〒」・空白をそろえて7桁にする（郵便番号でなければ null） | 入力の判定 |
+| src/geocode.js | `requestJson` | 関数 | 通信して JSON を受け取る（時間の上限・クッキーなし・参照元なし。失敗の文に入力を入れない） | 通信 |
+| src/geocode.js | `buildPostalAddress` | 関数（公開） | zipcloud の1件から、町域まで・市区町村までの住所の文字を作る | 郵便番号の検索 |
+| src/geocode.js | `findPlaceByAddress` | 関数 | 住所を国土地理院で探し、一番合う1件を返す | 郵便番号の検索 |
+| src/geocode.js | `searchByPostalCode` | 関数 | 郵便番号 → 住所（zipcloud）→ 座標（国土地理院） | 郵便番号の検索 |
+| src/geocode.js | `searchPlaces` | 関数（公開） | 地名または郵便番号で候補を探す（失敗の文に入力を入れない） | 検索の入口 |
 | src/report.js | `JST_UTC_OFFSET_HOURS` | 定数（公開） | 9 | 日本時間の時差 |
 | src/report.js | `WEEKDAY_LABELS` | 定数 | 日〜土 | 曜日の表示 |
 | src/report.js | `CSV_HEADERS` | 定数 | CSV の見出し | CSV |
@@ -70,6 +82,8 @@
 | src/report.js | `buildMonthRows` | 関数（公開） | 1か月分の行 | 月の表 |
 | src/report.js | `escapeCsvCell` | 関数（公開） | 引用符で囲み、数式の先頭に ' を付ける | CSV の安全 |
 | src/report.js | `toCsv` | 関数（公開） | 月の表を CSV の文字に（CRLF） | CSV の保存 |
+| src/japan-map.js | `HORIZON_ALTITUDE_DEG` | 定数 | -0.833（度） | 昼夜の境にする太陽の高度（時刻の計算と同じ） |
+| src/japan-map.js | `DAYLIGHT_ROW_HEIGHT` / `DAYLIGHT_SAMPLE_STEPS` / `DEGREES_TO_RADIANS` | 定数 | 昼夜の線の折れ線の間隔（2）・昼夜の判定で調べる点の数・度→ラジアン | 昼夜の計算 |
 | src/japan-map.js | `MAIN_BOUNDS` / `MAIN_SCALE` / `MAIN_LONGITUDE_SCALE` | 定数 | 本土の地図の範囲（北緯30〜45.9度・東経128.6〜148.9度）と、1度あたりの長さ | 緯度・経度を図の位置にする |
 | src/japan-map.js | `INSET_BOUNDS` / `INSET_SCALE` / `INSET_LONGITUDE_SCALE` / `INSET_PADDING` | 定数 | 沖縄・奄美の枠の中の範囲・縮尺・余白 | 同上（枠の中） |
 | src/japan-map.js | `MAP_WIDTH` / `MAP_HEIGHT` / `INSET_FRAME` | 定数（公開） | 地図全体の大きさと、右下の枠の位置・大きさ | 描く大きさ |
@@ -81,23 +95,39 @@
 | src/japan-map.js | `isOnLand` | 関数（公開） | 緯度・経度が地図の陸地の中か | テスト（印が海に出ないこと） |
 | src/japan-map.js | `polygonsToPath` / `buildLandPaths` | 関数 | 多角形を SVG の path の d 属性にする | 描画 |
 | src/japan-map.js | `createSvgElement` | 関数 | SVG の要素を作る | 描画 |
-| src/japan-map.js | `render` | 関数（公開） | 地図を描き、地点に印を付ける（載せられたら true） | 描画 |
+| src/japan-map.js | `normalizeLongitudeDifference` | 関数 | 経度の差を -180〜180 度に収める | 昼夜の計算 |
+| src/japan-map.js | `getDaylightHalfWidth` | 関数（公開） | ある緯度で、太陽直下点から東西にどこまで昼か（0＝一日中夜、180＝一日中昼） | 昼夜の計算 |
+| src/japan-map.js | `isDaylight` | 関数（公開） | その地点が昼か | 昼夜の計算 |
+| src/japan-map.js | `describeDaylight` | 関数（公開） | 日本全体が昼・夜・混ざっているか | 地図の下の説明 |
+| src/japan-map.js | `buildDaylightRegion` / `buildDaylightGeometry` | 関数（`buildDaylightGeometry` は公開） | 昼の領域・夜の領域・日の出の線（昼の西の端）・日の入りの線（東の端）の path を作る | 昼夜の描画 |
+| src/japan-map.js | `drawDaylightRegion` | 関数 | 昼夜の領域と線を SVG に描き足す | 描画 |
+| src/japan-map.js | `render` | 関数（公開） | 地図を描き、昼夜を重ね、地点に印を付ける（載せられたら true） | 描画 |
 | src/sun-chart.js | `CHART_WIDTH` / `CHART_HEIGHT` / `ARC` / `DAY_BAR` | 定数 | 図の大きさ・太陽の弧・昼夜のバーの位置 | 描く大きさ |
 | src/sun-chart.js | `NOON_PROGRESS` / `TICK_HOURS` / `MINUTES_PER_DAY` | 定数 | 南中の進み具合（0.5）・目盛りの時刻・1日の分 | 描画 |
 | src/sun-chart.js | `getSunPosition` | 関数（公開） | 昼の進み具合から、弧の上の太陽の位置 | 描画 |
 | src/sun-chart.js | `computeProgress` | 関数（公開） | いまの時刻から昼の進み具合（今日でなければ南中） | 描画 |
 | src/sun-chart.js | `getDayBarSegment` | 関数（公開） | 昼の時間帯をバーの上の位置と幅に | 描画 |
 | src/sun-chart.js | `createSvgElement` / `render` | 関数 | SVG の要素を作る／図を描く（`render` は公開） | 描画 |
+| src/weather.js | `OPEN_METEO_URL` / `REQUEST_TIMEOUT_MS` / `COORDINATE_DECIMALS` / `CALM_WIND_SPEED_MS` | 定数 | 通信先・応答を待つ時間・送る座標の小数の桁数（2）・無風とみなす風速（0.3 m/s） | 天気の取得 |
+| src/weather.js | `WIND_DIRECTION_LABELS` / `WEATHER_CODE_LABELS` | 定数 | 16方位の名前・天気コードの日本語 | 表示 |
+| src/weather.js | `getWindDirectionLabel` | 関数（公開） | 風向（度）を16方位の名前に | 表示 |
+| src/weather.js | `getWeatherLabel` | 関数（公開） | 天気コードを日本語に（知らないコードは「不明」） | 表示 |
+| src/weather.js | `buildWeatherUrl` | 関数（公開） | 問い合わせの URL（座標は小数2桁に丸める） | 天気の取得 |
+| src/weather.js | `parseWeatherResponse` | 関数（公開） | 応答を画面に出す形にする（範囲外・形違いは null） | 天気の取得 |
+| src/weather.js | `fetchCurrentWeather` | 関数（公開） | 地点のいまの天気を取得する（失敗の文に座標を入れない） | 天気の取得 |
 | src/app.js | `elements` | 変数 | 画面の部品 | 画面の操作 |
 | src/app.js | `state` | 変数 | 選んだ地点・月の行・月の印 | 画面の状態 |
 | src/app.js | `STATUS_LABELS` | 定数 | 白夜・極夜の説明 | 表示 |
 | src/app.js | `MAP_NOTE_ON_MAP` / `MAP_NOTE_OFF_MAP` | 定数 | 地図の下の説明（載っているとき・載っていないとき） | 表示 |
+| src/app.js | `DAYLIGHT_ALL_LABELS` | 定数 | 日本全体が昼・夜のときの説明 | 表示 |
 | src/app.js | `MILLISECONDS_PER_HOUR` | 定数 | 3600000 | 日本時間の計算 |
 | src/app.js | `getNowInJapan` / `getNowMinutesInJapan` | 関数 | 日本時間のいま／いまの0時からの分 | 今日の判定・太陽の位置 |
 | src/app.js | `formatDateInput` | 関数 | 年・月・日を「YYYY-MM-DD」に | 日付の入力 |
 | src/app.js | `formatCoordinates` | 関数 | 「北緯35.66° 東経139.74°」の文字 | 表示 |
 | src/app.js | `stepDate` | 関数 | 日付を前後に1日動かす（範囲外は動かさない） | 操作 |
-| src/app.js | `renderPlaceSummary` | 関数 | 結果の上の部分（地図・県名・地名・日付）を出す | 表示 |
+| src/app.js | `loadWeather` | 関数 | 選んだ地点のいまの天気を取得して出す（古い取得の結果は捨てる） | 天気 |
+| src/app.js | `renderWeather` | 関数 | 天気・気温・風向・風速と風の矢印を出す | 天気 |
+| src/app.js | `renderPlaceSummary` | 関数 | 結果の上の部分（昼夜つきの地図・県名・地名・日付）を出す | 表示 |
 | src/app.js | `renderSunChart` | 関数 | 太陽の通り道の図を出す（白夜・極夜は隠す） | 表示 |
 | src/app.js | `handleMonthBodyClick` | 関数 | 月の表の日付を押したらその日に切り替える | 操作 |
 | src/app.js | `showStatus` | 関数 | 状態のメッセージを出す | 表示 |
@@ -116,4 +146,7 @@
 | test/geocode.test.js | `SAMPLE_RESPONSE` | 定数 | 国土地理院の応答の見本 | テストの入力 |
 | test/geocode.test.js | `createFakeFetch` | 関数 | 決まった応答を返す偽物の fetch | 通信しないテスト |
 | test/report.test.js | `SAMPLE_PLACE` | 定数 | 架空の地点 | テストの入力 |
+| test/japan-map.test.js | `JAPAN_CENTER_LONGITUDE` / `COASTAL_TOLERANCE_DEGREES` / `isNearLand` | 定数・関数 | 日本の真ん中の経度・岸からの許容（0.05度）・岸のそばか調べる | 昼夜・海岸のテスト |
 | test/japan-map.test.js | `MAJOR_CITIES` | 定数 | 主な都市（名前・緯度・経度） | 印が海に出ないことの確認 |
+| test/weather.test.js | `SAMPLE_BODY` / `createFakeFetch` | 定数・関数 | Open-Meteo の応答の見本（架空）・偽物の fetch | 通信しないテスト |
+| test/geocode.test.js | `ZIPCLOUD_SAMPLE` / `createPostalFakeFetch` / `gsiFeature` | 定数・関数 | zipcloud の応答の見本（架空の住所）・郵便番号用の偽物の fetch・国土地理院の応答の1件 | 郵便番号のテスト |

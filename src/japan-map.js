@@ -1,7 +1,7 @@
 /*
  * japan-map.js
- * 目的：簡略化した日本地図（SVG）を描き、選んだ地点の位置に印を付ける。
- * 使い方：ブラウザでは <script> で読み込むと window.JapanMap に入る。Node では require('./japan-map.js')（位置の変換だけ使える）。
+ * 目的：簡略化した日本地図（SVG）を描き、選んだ地点の位置に印を付ける。ある瞬間の昼夜（日の出・日の入りの線、昼の側と夜の側）も重ねる。
+ * 使い方：ブラウザでは <script> で読み込むと window.JapanMap に入る。Node では require('./japan-map.js')（位置の変換と昼夜の計算だけ使える）。
  * 注意：地図の形は、このファイルに書いた単純化した海岸線（緯度・経度）から作る。実行時に外部のデータは読まない。通信はしない。
  *   位置は目安で、海岸線の細かい形は表していない。
  */
@@ -10,6 +10,18 @@
 
   // SVG の名前空間（createElementNS に必要）
   const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+  // 日の出・日の入りとみなす太陽の高度（度）。大気による浮き上がりと太陽の半径を考えた値で、時刻の計算（sun-calc.js）と同じ
+  const HORIZON_ALTITUDE_DEG = -0.833;
+
+  // 昼夜の境の線を、この間隔（図の単位）ごとの点をつないだ折れ線で描く
+  const DAYLIGHT_ROW_HEIGHT = 2;
+
+  // 度をラジアンに変える係数
+  const DEGREES_TO_RADIANS = Math.PI / 180;
+
+  // 昼夜の判定（describeDaylight）で調べる点の数（地図の範囲を縦横に区切る数）
+  const DAYLIGHT_SAMPLE_STEPS = 4;
 
   // 本土の地図に載せる範囲（度）。北は択捉島、東は択捉島の東、西は五島列島、南は屋久島の南まで
   const MAIN_BOUNDS = { minLatitude: 30.0, maxLatitude: 45.9, minLongitude: 128.6, maxLongitude: 148.9 };
@@ -203,6 +215,164 @@
   }
 
   /**
+   * 2つの経度の差を、-180〜180 度の範囲に収める。
+   * @param {number} difference 経度の差（度）
+   * @returns {number} -180 以上 180 未満の差（度）
+   */
+  function normalizeLongitudeDifference(difference) {
+    return ((((difference + 180) % 360) + 360) % 360) - 180;
+  }
+
+  /**
+   * ある緯度で、太陽の真下の経度から東西にどこまで昼が続くか（昼の半分の幅）を求める。
+   * @param {number} latitude 緯度（度）
+   * @param {number} subsolarLatitude 太陽直下点の緯度（度。太陽の赤緯と同じ）
+   * @returns {number} 昼の半分の幅（度）。0 なら一日中夜、180 なら一日中昼
+   */
+  function getDaylightHalfWidth(latitude, subsolarLatitude) {
+    const latitudeRad = latitude * DEGREES_TO_RADIANS;
+    const declinationRad = subsolarLatitude * DEGREES_TO_RADIANS;
+    const denominator = Math.cos(latitudeRad) * Math.cos(declinationRad);
+    // 太陽の高度が日の出・日の入りの値になる時角 H は、sin(高度) = sin(緯度)sin(赤緯) + cos(緯度)cos(赤緯)cos(H) から求める
+    const numerator = Math.sin(HORIZON_ALTITUDE_DEG * DEGREES_TO_RADIANS) - Math.sin(latitudeRad) * Math.sin(declinationRad);
+    if (Math.abs(denominator) < 1e-12) return numerator < 0 ? 180 : 0; // 極
+    const cosine = numerator / denominator;
+    if (cosine >= 1) return 0; // 一日中夜（極夜）
+    if (cosine <= -1) return 180; // 一日中昼（白夜）
+    return Math.acos(cosine) / DEGREES_TO_RADIANS;
+  }
+
+  /**
+   * ある瞬間に、その地点が昼（太陽が日の出・日の入りの高度より上）かどうか。
+   * @param {number} latitude 緯度（度）
+   * @param {number} longitude 経度（度）
+   * @param {{latitude: number, longitude: number}} subsolar 太陽直下点（SunCalc.getSubsolarPoint の結果）
+   * @returns {boolean} 昼なら true
+   */
+  function isDaylight(latitude, longitude, subsolar) {
+    const halfWidth = getDaylightHalfWidth(latitude, subsolar.latitude);
+    return Math.abs(normalizeLongitudeDifference(longitude - subsolar.longitude)) < halfWidth;
+  }
+
+  /**
+   * 日本の範囲が、全部昼か・全部夜か・昼と夜が混ざっているかを調べる（地図の下の説明に使う）。
+   * @param {{latitude: number, longitude: number}} subsolar 太陽直下点
+   * @returns {'day'|'night'|'mixed'} 全部昼なら 'day'、全部夜なら 'night'、混ざっていれば 'mixed'
+   */
+  function describeDaylight(subsolar) {
+    let dayCount = 0;
+    let total = 0;
+    for (let row = 0; row <= DAYLIGHT_SAMPLE_STEPS; row++) {
+      for (let column = 0; column <= DAYLIGHT_SAMPLE_STEPS; column++) {
+        const latitude = MAIN_BOUNDS.minLatitude + ((MAIN_BOUNDS.maxLatitude - MAIN_BOUNDS.minLatitude) * row) / DAYLIGHT_SAMPLE_STEPS;
+        const longitude = MAIN_BOUNDS.minLongitude + ((MAIN_BOUNDS.maxLongitude - MAIN_BOUNDS.minLongitude) * column) / DAYLIGHT_SAMPLE_STEPS;
+        total += 1;
+        if (isDaylight(latitude, longitude, subsolar)) dayCount += 1;
+      }
+    }
+    if (dayCount === total) return 'day';
+    return dayCount === 0 ? 'night' : 'mixed';
+  }
+
+  /**
+   * 範囲（本土の地図、または沖縄・奄美の枠）の中の、昼の領域・夜の領域・日の出の線・日の入りの線を作る。
+   * @param {{left: number, right: number, top: number, bottom: number, minLongitude: number, maxLongitude: number,
+   *          latitudeAt: (y: number) => number, xAt: (longitude: number) => number}} region 範囲（位置は図の単位）
+   * @param {{latitude: number, longitude: number}} subsolar 太陽直下点
+   * @returns {{night: string, day: string, sunrise: string, sunset: string, sunriseLabel: {x: number, y: number}|null,
+   *            sunsetLabel: {x: number, y: number}|null}} SVG の path の d 属性（なければ空の文字）と、線の名札を置く位置
+   * 注意：日の出の線は昼の領域の西の端（朝の側）、日の入りの線は東の端（夕方の側）にできる
+   */
+  function buildDaylightRegion(region, subsolar) {
+    const centerLongitude = (region.minLongitude + region.maxLongitude) / 2;
+    // 太陽直下点の経度を、範囲の真ん中に近い表し方（±360 度のうち近いほう）にする
+    const sunLongitude = centerLongitude - normalizeLongitudeDifference(centerLongitude - subsolar.longitude);
+    const clamp = (x) => Math.min(region.right, Math.max(region.left, x));
+    const points = [];
+    for (let y = region.top; ; y += DAYLIGHT_ROW_HEIGHT) {
+      const rowY = Math.min(y, region.bottom);
+      const halfWidth = getDaylightHalfWidth(region.latitudeAt(rowY), subsolar.latitude);
+      const west = region.xAt(sunLongitude - halfWidth);
+      const east = region.xAt(sunLongitude + halfWidth);
+      points.push({ y: rowY, west: clamp(west), east: clamp(east), isWestInside: west > region.left && west < region.right, isEastInside: east > region.left && east < region.right });
+      if (rowY >= region.bottom) break;
+    }
+    const format = (x, y) => `${x.toFixed(1)},${y.toFixed(1)}`;
+    const night =
+      `M${format(region.left, region.top)} ${points.map((point) => `L${format(point.west, point.y)}`).join(' ')} L${format(region.left, region.bottom)} Z ` +
+      `M${format(region.right, region.top)} ${points.map((point) => `L${format(point.east, point.y)}`).join(' ')} L${format(region.right, region.bottom)} Z`;
+    const day =
+      `M${points.map((point) => format(point.west, point.y)).join(' L')} ` +
+      `${points.slice().reverse().map((point) => `L${format(point.east, point.y)}`).join(' ')} Z`;
+
+    // 線は、範囲の中にある点だけをつなぐ（範囲の端に張り付いたところは描かない）
+    const buildLine = (xKey, insideKey) => {
+      let path = '';
+      let isDrawing = false;
+      for (const point of points) {
+        if (point[insideKey]) {
+          path += `${isDrawing ? 'L' : 'M'}${format(point[xKey], point.y)} `;
+          isDrawing = true;
+        } else {
+          isDrawing = false;
+        }
+      }
+      return path.trim();
+    };
+    // 名札は、範囲の縦の真ん中に一番近い、線の上の点に置く
+    const middleY = (region.top + region.bottom) / 2;
+    const findLabel = (xKey, insideKey) => {
+      const inside = points.filter((point) => point[insideKey]);
+      if (inside.length === 0) return null;
+      const nearest = inside.reduce((best, point) => (Math.abs(point.y - middleY) < Math.abs(best.y - middleY) ? point : best));
+      return { x: nearest[xKey], y: nearest.y };
+    };
+    return {
+      night,
+      day,
+      sunrise: buildLine('west', 'isWestInside'),
+      sunset: buildLine('east', 'isEastInside'),
+      sunriseLabel: findLabel('west', 'isWestInside'),
+      sunsetLabel: findLabel('east', 'isEastInside'),
+    };
+  }
+
+  /**
+   * 本土の地図と沖縄・奄美の枠の、昼夜の領域と日の出・日の入りの線を作る。
+   * @param {{latitude: number, longitude: number}} subsolar 太陽直下点（SunCalc.getSubsolarPoint の結果）
+   * @returns {{mainland: object, inset: object}} buildDaylightRegion の結果（本土・枠の中）
+   */
+  function buildDaylightGeometry(subsolar) {
+    const mainland = buildDaylightRegion(
+      {
+        left: 0,
+        right: MAP_WIDTH,
+        top: 0,
+        bottom: MAP_HEIGHT,
+        minLongitude: MAIN_BOUNDS.minLongitude,
+        maxLongitude: MAIN_BOUNDS.maxLongitude,
+        latitudeAt: (y) => MAIN_BOUNDS.maxLatitude - y / MAIN_SCALE,
+        xAt: (longitude) => (longitude - MAIN_BOUNDS.minLongitude) * MAIN_LONGITUDE_SCALE,
+      },
+      subsolar
+    );
+    const inset = buildDaylightRegion(
+      {
+        left: INSET_FRAME.x,
+        right: INSET_FRAME.x + INSET_FRAME.width,
+        top: INSET_FRAME.y,
+        bottom: INSET_FRAME.y + INSET_FRAME.height,
+        minLongitude: INSET_BOUNDS.minLongitude,
+        maxLongitude: INSET_BOUNDS.maxLongitude,
+        latitudeAt: (y) => INSET_BOUNDS.maxLatitude - (y - INSET_FRAME.y - INSET_PADDING) / INSET_SCALE,
+        xAt: (longitude) => INSET_FRAME.x + INSET_PADDING + (longitude - INSET_BOUNDS.minLongitude) * INSET_LONGITUDE_SCALE,
+      },
+      subsolar
+    );
+    return { mainland, inset };
+  }
+
+  /**
    * SVG の要素を作る。
    * @param {Document} doc 要素を作る document
    * @param {string} tagName 要素の名前
@@ -216,24 +386,61 @@
   }
 
   /**
-   * 日本地図を SVG に描き、地点の位置に印を付ける。
+   * 昼夜の領域（昼の側・夜の側）と日の出・日の入りの線を、SVG に描き足す。
+   * @param {SVGElement} parent 描き足す先
+   * @param {object} region buildDaylightRegion の結果
+   * @param {boolean} withLabels 線に「日の出」「日の入り」の名札を付けるか
+   */
+  function drawDaylightRegion(parent, region, withLabels) {
+    const doc = parent.ownerDocument;
+    parent.appendChild(createSvgElement(doc, 'path', { class: 'map-day', d: region.day }));
+    parent.appendChild(createSvgElement(doc, 'path', { class: 'map-night', d: region.night }));
+    if (region.sunrise) parent.appendChild(createSvgElement(doc, 'path', { class: 'map-line-sunrise', d: region.sunrise }));
+    if (region.sunset) parent.appendChild(createSvgElement(doc, 'path', { class: 'map-line-sunset', d: region.sunset }));
+    if (!withLabels) return;
+    [['sunriseLabel', 'map-line-label map-line-label-sunrise', 'end', -4, '日の出'], ['sunsetLabel', 'map-line-label map-line-label-sunset', 'start', 4, '日の入り']].forEach(
+      ([key, className, anchor, offset, text]) => {
+        if (!region[key]) return;
+        const label = createSvgElement(doc, 'text', { class: className, x: (region[key].x + offset).toFixed(1), y: region[key].y.toFixed(1), 'text-anchor': anchor });
+        label.textContent = text;
+        parent.appendChild(label);
+      }
+    );
+  }
+
+  /**
+   * 日本地図を SVG に描き、地点の位置に印を付ける。ある瞬間の昼夜も重ねる。
    * @param {SVGSVGElement} svg 描く先の svg 要素（中身は消して描き直す）
    * @param {{latitude: number, longitude: number}|null} place 印を付ける地点（null なら地図だけ）
+   * @param {{latitude: number, longitude: number}|null} [subsolar] 昼夜を示す瞬間の太陽直下点（省略か null なら昼夜は描かない）
    * @returns {boolean} 地点を地図の上に示せたら true。地図に載っていない場所なら false
-   * 注意：色は CSS のクラス（map-sea・map-land など）で決める。属性のスタイルは使わない
+   * 注意：色は CSS のクラス（map-sea・map-land・map-day・map-night など）で決める。属性のスタイルは使わない
    */
-  function render(svg, place) {
+  function render(svg, place, subsolar) {
     const doc = svg.ownerDocument;
     const paths = buildLandPaths();
+    const daylight = subsolar ? buildDaylightGeometry(subsolar) : null;
     svg.replaceChildren();
     svg.setAttribute('viewBox', `0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`);
-    svg.appendChild(createSvgElement(doc, 'rect', { class: 'map-sea', x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT, rx: 10 }));
-    svg.appendChild(createSvgElement(doc, 'path', { class: 'map-land', d: paths.mainland }));
-    svg.appendChild(createSvgElement(doc, 'rect', { class: 'map-inset-frame', ...INSET_FRAME, rx: 4 }));
-    svg.appendChild(createSvgElement(doc, 'path', { class: 'map-land', d: paths.inset }));
+
+    // 角の丸い地図の外へ、昼夜の色がはみ出さないようにする
+    const clipPath = createSvgElement(doc, 'clipPath', { id: 'map-clip' });
+    clipPath.appendChild(createSvgElement(doc, 'rect', { x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT, rx: 10 }));
+    const defs = createSvgElement(doc, 'defs', {});
+    defs.appendChild(clipPath);
+    svg.appendChild(defs);
+
+    const group = createSvgElement(doc, 'g', { 'clip-path': 'url(#map-clip)' });
+    group.appendChild(createSvgElement(doc, 'rect', { class: 'map-sea', x: 0, y: 0, width: MAP_WIDTH, height: MAP_HEIGHT }));
+    group.appendChild(createSvgElement(doc, 'path', { class: 'map-land', d: paths.mainland }));
+    if (daylight) drawDaylightRegion(group, daylight.mainland, true);
+    group.appendChild(createSvgElement(doc, 'rect', { class: 'map-inset-frame', ...INSET_FRAME, rx: 4 }));
+    group.appendChild(createSvgElement(doc, 'path', { class: 'map-land', d: paths.inset }));
+    if (daylight) drawDaylightRegion(group, daylight.inset, false);
     const label = createSvgElement(doc, 'text', { class: 'map-inset-label', x: INSET_FRAME.x + 5, y: INSET_FRAME.y + 10 });
     label.textContent = '沖縄・奄美';
-    svg.appendChild(label);
+    group.appendChild(label);
+    svg.appendChild(group);
 
     const point = place ? projectPoint(place.latitude, place.longitude) : null;
     if (point === null) return false;
@@ -242,7 +449,19 @@
     return true;
   }
 
-  const api = { projectPoint, isOnLand, buildLandPaths, render, MAP_WIDTH, MAP_HEIGHT, INSET_FRAME };
+  const api = {
+    projectPoint,
+    isOnLand,
+    buildLandPaths,
+    isDaylight,
+    describeDaylight,
+    getDaylightHalfWidth,
+    buildDaylightGeometry,
+    render,
+    MAP_WIDTH,
+    MAP_HEIGHT,
+    INSET_FRAME,
+  };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

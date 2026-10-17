@@ -2,7 +2,8 @@
 <!--
   index.html
   目的：日の出・日の入りレポートの画面。地名を検索して地点を選び、日付を選ぶと、日本地図の上の位置・その日の時刻・太陽の通り道・その月の一覧を出す。
-  注意：通信先は国土地理院の地名検索 API だけに限る（下の Content-Security-Policy の connect-src）。
+  注意：通信先は次の3つだけに限る（下の Content-Security-Policy の connect-src。依頼者が許可したもの）。
+          国土地理院の地名検索 API（地名の検索）／ zipcloud（郵便番号から住所）／ Open-Meteo（いまの天気）。
         図やアイコンは、このファイルの中の SVG と src/ の JavaScript が描く（外部の画像は読み込まない）。
 -->
 <html lang="ja">
@@ -11,7 +12,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- 読み込めるのはこのフォルダのファイルだけ。通信は国土地理院だけ。外部の画像・フォーム送信・埋め込みは禁止 -->
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://msearch.gsi.go.jp; base-uri 'none'; form-action 'none'">
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://msearch.gsi.go.jp https://zipcloud.ibsnet.co.jp https://api.open-meteo.com; base-uri 'none'; form-action 'none'">
   <meta name="referrer" content="no-referrer">
   <title>日の出・日の入りレポート</title>
   <link rel="stylesheet" href="style.css">
@@ -38,10 +39,10 @@
       <h2 id="search-heading"><span class="step-number" aria-hidden="true">1</span>地点を探す</h2>
       <form id="search-form" class="search-form" novalidate>
         <label for="place-query" class="visually-hidden">地名</label>
-        <input id="place-query" type="search" maxlength="50" placeholder="例：札幌市、横浜市中区" autocomplete="off" required>
+        <input id="place-query" type="search" maxlength="50" placeholder="例：札幌市、横浜市中区、100-0001" autocomplete="off" required>
         <button id="search-button" type="submit">検索</button>
       </form>
-      <p class="note">検索した地名は、国土地理院の地名検索 API へ送られます（保存はしません）。</p>
+      <p class="note">地名または郵便番号（7桁）で探せます。検索した地名は国土地理院の地名検索 API へ、郵便番号は住所を調べるために zipcloud と国土地理院へ送られます（保存はしません）。</p>
       <ul id="place-results" class="place-results" aria-label="検索結果"></ul>
     </section>
 
@@ -67,12 +68,38 @@
       <div class="result-head">
         <figure class="japan-map-figure">
           <svg id="japan-map" class="japan-map" role="img" aria-label="日本地図"></svg>
-          <figcaption id="map-note" class="map-note"></figcaption>
+          <figcaption class="map-caption">
+            <span id="map-daylight" class="map-daylight"></span>
+            <ul class="map-legend">
+              <li><span class="swatch swatch-day" aria-hidden="true"></span>昼</li>
+              <li><span class="swatch swatch-night" aria-hidden="true"></span>夜</li>
+              <li><span class="swatch swatch-sunrise" aria-hidden="true"></span>日の出の線</li>
+              <li><span class="swatch swatch-sunset" aria-hidden="true"></span>日の入りの線</li>
+            </ul>
+            <span id="map-note" class="map-note"></span>
+          </figcaption>
         </figure>
         <div class="result-summary">
           <p class="result-place"><span id="result-prefecture" class="badge" hidden></span><span id="result-place-name"></span></p>
           <p id="result-date" class="result-date"></p>
           <p id="result-coords" class="result-coords"></p>
+
+          <!-- いまの天気（選んだ地点。Open-Meteo） -->
+          <div class="weather-block">
+            <p class="weather-title">いまの天気</p>
+            <p id="weather-status" class="note" role="status">地点を選ぶと表示します。</p>
+            <dl id="weather-grid" class="weather-grid" hidden>
+              <div class="weather-item"><dt>天気</dt><dd id="weather-label">--</dd></div>
+              <div class="weather-item"><dt>気温</dt><dd id="weather-temperature">--</dd></div>
+              <div class="weather-item weather-wind">
+                <dt>風</dt>
+                <dd>
+                  <svg id="wind-arrow" class="wind-arrow" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><g id="wind-arrow-rotation"><path d="M12 3v15M6 12l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g></svg>
+                  <span id="weather-wind">--</span>
+                </dd>
+              </div>
+            </dl>
+          </div>
         </div>
       </div>
 
@@ -119,7 +146,7 @@
   </main>
 
   <footer class="page-footer">
-    <p>地名の検索：国土地理院 地名検索 API ／ 時刻の計算：NOAA Solar Calculator の計算式</p>
+    <p>地名の検索：国土地理院 地名検索 API ／ 郵便番号：zipcloud ／ 天気：Open-Meteo（気象モデルによる値） ／ 時刻の計算：NOAA Solar Calculator の計算式</p>
     <p>時刻は計算値です（誤差はおおむね ±1 分。標高・山などの地形は考えていません）。日本地図は簡略化した図で、位置は目安です。</p>
   </footer>
 
@@ -128,6 +155,7 @@
   <script src="src/report.js"></script>
   <script src="src/japan-map.js"></script>
   <script src="src/sun-chart.js"></script>
+  <script src="src/weather.js"></script>
   <script src="src/app.js"></script>
 </body>
 </html>

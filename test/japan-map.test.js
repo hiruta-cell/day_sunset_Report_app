@@ -8,7 +8,10 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { projectPoint, isOnLand, buildLandPaths, MAP_WIDTH, MAP_HEIGHT, INSET_FRAME } = require('../src/japan-map.js');
+const {
+  projectPoint, isOnLand, buildLandPaths, isDaylight, describeDaylight, getDaylightHalfWidth, buildDaylightGeometry,
+  MAP_WIDTH, MAP_HEIGHT, INSET_FRAME,
+} = require('../src/japan-map.js');
 
 // 地図の上で陸地に載っていてほしい主な都市（名前, 緯度, 経度）。海の上に印が出ないことの確認
 const MAJOR_CITIES = [
@@ -83,4 +86,44 @@ test('buildLandPaths は本土と枠の中の d 属性を返す', () => {
   const paths = buildLandPaths();
   assert.match(paths.mainland, /^M[\d.,\sLZM-]+$/);
   assert.match(paths.inset, /^M[\d.,\sLZM-]+$/);
+});
+
+// 日本の真ん中あたりの経度（日本が太陽の真下・真裏・横になる向きを作るのに使う）
+const JAPAN_CENTER_LONGITUDE = 138.5;
+
+test('getDaylightHalfWidth は赤緯 0 度の緯度35度で約 91 度（昼が少し長い）、極では 0 か 180 を返す', () => {
+  assert.ok(Math.abs(getDaylightHalfWidth(35, 0) - 91.02) < 0.05);
+  assert.equal(getDaylightHalfWidth(80, -23), 0); // 極夜
+  assert.equal(getDaylightHalfWidth(80, 23), 180); // 白夜
+});
+
+test('isDaylight は太陽の真下は昼、地球の反対側は夜にする', () => {
+  const subsolar = { latitude: 10, longitude: JAPAN_CENTER_LONGITUDE };
+  assert.equal(isDaylight(35.7, 139.7, subsolar), true);
+  assert.equal(isDaylight(35.7, 139.7 + 180, subsolar), false);
+});
+
+test('describeDaylight は日本が全部昼・全部夜・昼夜が混ざっているときを見分ける', () => {
+  assert.equal(describeDaylight({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE }), 'day');
+  assert.equal(describeDaylight({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE + 180 }), 'night');
+  assert.equal(describeDaylight({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE - 90 }), 'mixed');
+});
+
+test('日本が夕方（太陽が西）なら日の入りの線だけ、朝（太陽が東）なら日の出の線だけが地図に出る', () => {
+  const evening = buildDaylightGeometry({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE - 90 });
+  assert.ok(evening.mainland.sunset.startsWith('M'));
+  assert.equal(evening.mainland.sunrise, '');
+  const morning = buildDaylightGeometry({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE + 90 });
+  assert.ok(morning.mainland.sunrise.startsWith('M'));
+  assert.equal(morning.mainland.sunset, '');
+});
+
+test('日本が全部昼のときは線がなく、夜の領域はない', () => {
+  const noon = buildDaylightGeometry({ latitude: 0, longitude: JAPAN_CENTER_LONGITUDE });
+  assert.equal(noon.mainland.sunrise, '');
+  assert.equal(noon.mainland.sunset, '');
+  // 夜の領域の path は、幅 0 の領域（x が地図の左端 0 か右端のどちらかだけ）になる
+  const xValues = [...noon.mainland.night.matchAll(/[ML]([\d.]+),/g)].map((match) => Number(match[1]));
+  assert.ok(xValues.length > 0);
+  assert.ok(xValues.every((x) => x === 0 || x === MAP_WIDTH), '夜の領域に幅がある');
 });

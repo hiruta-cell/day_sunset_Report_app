@@ -1,14 +1,14 @@
 /*
  * app.js
- * 目的：画面の操作をまとめる（地名の検索 → 候補の選択 → 日付の選択 → 日本地図・結果・太陽の通り道・月の表の表示 → CSV の保存）。
- * 前提：sun-calc.js・geocode.js・report.js・japan-map.js・sun-chart.js を先に読み込んでおく
- *   （window.SunCalc・Geocode・SunReport・JapanMap・SunChart を使う）。
+ * 目的：画面の操作をまとめる（地名・郵便番号の検索 → 候補の選択 → 日付の選択 → 日本地図（昼夜の線つき）・結果・天気・太陽の通り道・月の表の表示 → CSV の保存）。
+ * 前提：sun-calc.js・geocode.js・report.js・japan-map.js・sun-chart.js・weather.js を先に読み込んでおく
+ *   （window.SunCalc・Geocode・SunReport・JapanMap・SunChart・Weather を使う）。
  * 注意：API から来た地名は textContent で表示する（innerHTML は使わない）。入力した地名は保存・ログ出力しない。
  */
 (function () {
   'use strict';
 
-  const { Geocode, SunReport, SunCalc, JapanMap, SunChart } = window;
+  const { Geocode, SunReport, SunCalc, JapanMap, SunChart, Weather } = window;
 
   // 画面の部品
   const elements = {
@@ -24,6 +24,14 @@
     resultSection: document.getElementById('result-section'),
     japanMap: document.getElementById('japan-map'),
     mapNote: document.getElementById('map-note'),
+    mapDaylight: document.getElementById('map-daylight'),
+    weatherStatus: document.getElementById('weather-status'),
+    weatherGrid: document.getElementById('weather-grid'),
+    weatherLabel: document.getElementById('weather-label'),
+    weatherTemperature: document.getElementById('weather-temperature'),
+    weatherWind: document.getElementById('weather-wind'),
+    windArrow: document.getElementById('wind-arrow'),
+    windArrowRotation: document.getElementById('wind-arrow-rotation'),
     resultPrefecture: document.getElementById('result-prefecture'),
     resultPlaceName: document.getElementById('result-place-name'),
     resultDate: document.getElementById('result-date'),
@@ -42,7 +50,8 @@
   };
 
   // 画面の状態：選んだ地点と、表に出している月の行
-  const state = { selectedPlace: null, monthRows: [], monthKey: '' };
+  // weatherRequestId は、天気の取得の通し番号（古い取得が新しい地点の表示を上書きしないように使う）
+const state = { selectedPlace: null, monthRows: [], monthKey: '', weatherRequestId: 0 };
 
   // 白夜・極夜のときに表示する説明
   const STATUS_LABELS = { midnightSun: '一日中沈みません（白夜）', polarNight: '一日中昇りません（極夜）' };
@@ -50,6 +59,9 @@
   // 地図の下に出す説明
   const MAP_NOTE_ON_MAP = '簡略化した地図です。位置は目安です。';
   const MAP_NOTE_OFF_MAP = 'この地点は、簡略化した地図に載っていない場所です。';
+
+  // 日本全体が昼・夜のときに、地図の下に出す説明
+  const DAYLIGHT_ALL_LABELS = { day: '日本全体が昼です。', night: '日本全体が夜です。' };
 
   // 1日のミリ秒・1時間のミリ秒（日付の計算に使う）
   const MILLISECONDS_PER_HOUR = 3600000;
@@ -158,7 +170,48 @@
     elements.placeResults.querySelectorAll('button').forEach((other) => other.setAttribute('aria-pressed', 'false'));
     button.setAttribute('aria-pressed', 'true');
     renderResult();
+    loadWeather(place);
     if (!elements.resultSection.hidden) elements.resultSection.scrollIntoView({ block: 'start' });
+  }
+
+  /**
+   * 選んだ地点のいまの天気を取得して、結果の欄に出す。取得できなくても、ほかの表示には影響させない。
+   * @param {{latitude: number, longitude: number}} place 選んだ地点
+   * 注意：取得中に別の地点が選ばれたときは、古い結果を捨てる（state.weatherRequestId で見分ける）
+   */
+  async function loadWeather(place) {
+    state.weatherRequestId += 1;
+    const requestId = state.weatherRequestId;
+    elements.weatherGrid.hidden = true;
+    elements.weatherStatus.hidden = false;
+    elements.weatherStatus.textContent = '天気を取得しています…';
+    try {
+      const weather = await Weather.fetchCurrentWeather(place.latitude, place.longitude);
+      if (requestId !== state.weatherRequestId) return;
+      renderWeather(weather);
+    } catch (error) {
+      if (requestId !== state.weatherRequestId) return;
+      elements.weatherStatus.textContent = error.message;
+    }
+  }
+
+  /**
+   * 天気（天気・気温・風向・風速）を結果の欄に出す。
+   * @param {{temperature: number, windSpeed: number, windDirectionDegrees: number, windDirectionLabel: string,
+   *          isCalm: boolean, weatherLabel: string, observedTime: string}} weather Weather.fetchCurrentWeather の結果
+   */
+  function renderWeather(weather) {
+    elements.weatherLabel.textContent = weather.weatherLabel;
+    elements.weatherTemperature.textContent = `${weather.temperature.toFixed(1)}℃`;
+    elements.weatherWind.textContent = weather.isCalm
+      ? 'ほぼ無風'
+      : `${weather.windDirectionLabel} ${weather.windSpeed.toFixed(1)} m/s`;
+    // 矢印は風が吹いていく向き。下向きの矢印を、風向（吹いてくる方向）の角度だけ回すと、その向きになる
+    elements.windArrowRotation.setAttribute('transform', `rotate(${weather.windDirectionDegrees} 12 12)`);
+    elements.windArrow.classList.toggle('is-calm', weather.isCalm);
+    elements.weatherGrid.hidden = false;
+    const time = weather.observedTime ? `${weather.observedTime} 時点（日本時間）。` : '';
+    elements.weatherStatus.textContent = `${time}気象モデルによる値（Open-Meteo）。風向は風が吹いてくる方向です。`;
   }
 
   /**
@@ -227,8 +280,16 @@
     elements.resultDate.textContent = `${date.year}年${date.month}月${date.day}日（${row.weekday}）`;
     elements.resultCoords.textContent = formatCoordinates(place);
 
-    const isOnMap = JapanMap.render(elements.japanMap, place);
+    // 地図の昼夜は、選んだ日付に、いまの時計の時刻（日本時間）を合わせた瞬間で示す（今日を選べば、いまの昼夜）
+    const now = getNowInJapan();
+    const subsolar = SunCalc.getSubsolarPoint(
+      Date.UTC(date.year, date.month - 1, date.day, now.getUTCHours() - SunReport.JST_UTC_OFFSET_HOURS, now.getUTCMinutes())
+    );
+    const isOnMap = JapanMap.render(elements.japanMap, place, subsolar);
     elements.mapNote.textContent = isOnMap ? MAP_NOTE_ON_MAP : MAP_NOTE_OFF_MAP;
+    const clock = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+    const moment = formatDateInput(date) === getTodayInJapan() ? `いま（${clock}）` : `${date.month}月${date.day}日の ${clock}`;
+    elements.mapDaylight.textContent = `${moment}の昼夜（日本時間）。${DAYLIGHT_ALL_LABELS[JapanMap.describeDaylight(subsolar)] || ''}`;
     elements.japanMap.setAttribute('aria-label', isOnMap ? `日本地図。${place.prefecture}${place.shortName}の位置` : '日本地図');
   }
 
