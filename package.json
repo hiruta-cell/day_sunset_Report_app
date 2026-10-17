@@ -1,0 +1,12 @@
+{
+  "name": "day-sunset-report-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "指定した地域の日の出・日の入りの時刻を表示する Web ページ（部品なし）",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

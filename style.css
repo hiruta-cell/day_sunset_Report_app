@@ -1,0 +1,162 @@
+/*
+ * style.css
+ * 目的：日の出・日の入りレポートの見た目。スマホ・PC の両方で見やすくし、ダーク表示にも対応する。
+ * 注意：色・余白は :root の CSS 変数にまとめる。
+ */
+
+:root {
+  --color-bg: #f6f4ef;
+  --color-surface: #ffffff;
+  --color-text: #22262b;
+  --color-muted: #5d6670;
+  --color-border: #dcd8cf;
+  --color-accent: #c2570c;        /* 日の出の色（ボタンにも使う） */
+  --color-accent-text: #ffffff;
+  --color-sunset: #6b3fa0;        /* 日の入りの色 */
+  --color-noon: #a16207;          /* 南中の色 */
+  --color-highlight: #fdecd8;     /* 表で選んだ日の行 */
+  --color-error: #b42318;
+  --radius: 10px;
+  --space: 16px;
+  --font: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+}
+
+/* 端末がダーク表示のとき */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #15171a;
+    --color-surface: #1f2226;
+    --color-text: #eceae6;
+    --color-muted: #a3abb4;
+    --color-border: #3a3f45;
+    --color-accent: #f08a3e;
+    --color-accent-text: #1a1a1a;
+    --color-sunset: #b794f4;
+    --color-noon: #facc15;
+    --color-highlight: #3b2a1c;
+    --color-error: #ff8a80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font);
+  line-height: 1.6;
+}
+
+.page-header, main, .page-footer {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 0 var(--space);
+}
+
+.page-header { padding-top: 24px; }
+.page-header h1 { margin: 0 0 4px; font-size: 1.6rem; }
+.lead { margin: 0 0 var(--space); color: var(--color-muted); }
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  margin-bottom: var(--space);
+}
+
+.card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+
+.search-form { display: flex; gap: 8px; }
+
+input[type="search"], input[type="date"] {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+input[type="search"] { flex: 1; min-width: 0; }
+
+button {
+  font: inherit;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  cursor: pointer;
+}
+
+button:disabled { opacity: 0.6; cursor: wait; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
+
+.note { margin: 8px 0 0; font-size: 0.85rem; color: var(--color-muted); }
+
+/* 検索結果の候補 */
+.place-results { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.place-results button {
+  width: 100%;
+  text-align: left;
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.place-results button[aria-pressed="true"] { border-color: var(--color-accent); box-shadow: inset 4px 0 0 var(--color-accent); }
+
+.status-message { min-height: 1.6em; margin: 0 0 var(--space); color: var(--color-muted); }
+.status-message.is-error { color: var(--color-error); font-weight: bold; }
+
+/* 結果 */
+.result-place { margin: 0; font-weight: bold; font-size: 1.1rem; }
+.result-date { margin: 0 0 12px; color: var(--color-muted); }
+
+.sun-times {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 0 0 var(--space);
+}
+
+.sun-time {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+}
+.sun-time dt { font-size: 0.85rem; color: var(--color-muted); }
+.sun-time dd { margin: 0; font-size: 1.5rem; font-weight: bold; font-variant-numeric: tabular-nums; }
+.sun-time.sunrise dd { color: var(--color-accent); }
+.sun-time.noon dd { color: var(--color-noon); }
+.sun-time.sunset dd { color: var(--color-sunset); }
+.sun-time.length dd { font-size: 1.15rem; line-height: 2.2rem; }
+
+.month-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.month-header h3 { margin: 0; font-size: 1rem; }
+
+.table-wrap { overflow-x: auto; margin-top: 8px; }
+.month-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.month-table th, .month-table td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); text-align: center; white-space: nowrap; }
+.month-table th { font-size: 0.85rem; color: var(--color-muted); }
+.month-table tr.is-selected td { background: var(--color-highlight); font-weight: bold; }
+.month-table td.weekday-sun { color: var(--color-error); }
+
+.page-footer { padding-bottom: 32px; font-size: 0.8rem; color: var(--color-muted); }
+.page-footer p { margin: 0 0 4px; }
+
+/* 画面には出さず、読み上げソフトには伝える */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+/* スマホ：時刻の箱を2列にし、表の余白と文字を詰めて全部の列を画面に収める */
+@media (max-width: 560px) {
+  .sun-times { grid-template-columns: repeat(2, 1fr); }
+  .month-header { flex-wrap: wrap; }
+  .month-table { font-size: 0.82rem; }
+  .month-table th, .month-table td { padding: 6px 3px; }
+}

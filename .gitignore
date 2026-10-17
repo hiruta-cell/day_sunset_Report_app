@@ -1,0 +1,18 @@
+# 秘密のファイル（このアプリは API キーを使わないが、念のため最初から除外する）
+.env
+.env.*
+!.env.example
+
+# 鍵・証明書
+*.pem
+*.key
+
+# 部品・ビルド結果・テストの出力
+node_modules/
+dist/
+test-results/
+
+# OS・エディタのごみ
+.DS_Store
+.vscode/
+*.log

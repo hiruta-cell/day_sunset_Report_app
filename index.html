@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<!--
+  index.html
+  目的：日の出・日の入りレポートの画面。地名を検索して地点を選び、日付を選ぶと、その日の時刻とその月の一覧を出す。
+  注意：通信先は国土地理院の地名検索 API だけに限る（下の Content-Security-Policy の connect-src）。
+-->
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 読み込めるのはこのフォルダのファイルだけ。通信は国土地理院だけ。外部の画像・フォーム送信・埋め込みは禁止 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://msearch.gsi.go.jp; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>日の出・日の入りレポート</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-header">
+    <h1>日の出・日の入りレポート</h1>
+    <p class="lead">市区町村名で地点を探し、日付を選ぶと、日の出・日の入りの時刻（日本時間）を表示します。</p>
+  </header>
+
+  <main>
+    <!-- 1. 地点を探す -->
+    <section class="card" aria-labelledby="search-heading">
+      <h2 id="search-heading">1. 地点を探す</h2>
+      <form id="search-form" class="search-form" novalidate>
+        <label for="place-query" class="visually-hidden">地名</label>
+        <input id="place-query" type="search" maxlength="50" placeholder="例：札幌市、横浜市中区" autocomplete="off" required>
+        <button id="search-button" type="submit">検索</button>
+      </form>
+      <p class="note">検索した地名は、国土地理院の地名検索 API へ送られます（保存はしません）。</p>
+      <ul id="place-results" class="place-results" aria-label="検索結果"></ul>
+    </section>
+
+    <!-- 2. 日付を選ぶ -->
+    <section class="card" aria-labelledby="date-heading">
+      <h2 id="date-heading">2. 日付を選ぶ</h2>
+      <label for="target-date" class="visually-hidden">日付</label>
+      <input id="target-date" type="date" min="1901-01-01" max="2099-12-31" required>
+    </section>
+
+    <!-- 状態のメッセージ（読み上げソフトにも伝える） -->
+    <p id="status-message" class="status-message" role="status" aria-live="polite"></p>
+
+    <!-- 3. 結果 -->
+    <section id="result-section" class="card" aria-labelledby="result-heading" hidden>
+      <h2 id="result-heading">3. 結果</h2>
+      <p id="result-place" class="result-place"></p>
+      <p id="result-date" class="result-date"></p>
+      <dl class="sun-times">
+        <div class="sun-time sunrise"><dt>日の出</dt><dd id="result-sunrise">--:--</dd></div>
+        <div class="sun-time noon"><dt>南中</dt><dd id="result-noon">--:--</dd></div>
+        <div class="sun-time sunset"><dt>日の入り</dt><dd id="result-sunset">--:--</dd></div>
+        <div class="sun-time length"><dt>昼の長さ</dt><dd id="result-length">--</dd></div>
+      </dl>
+
+      <div class="month-header">
+        <h3 id="month-heading">その月の一覧</h3>
+        <button id="csv-button" type="button">CSV で保存</button>
+      </div>
+      <div class="table-wrap">
+        <table class="month-table" aria-labelledby="month-heading">
+          <thead>
+            <tr><th scope="col">日付</th><th scope="col">曜日</th><th scope="col">日の出</th><th scope="col">南中</th><th scope="col">日の入り</th><th scope="col">昼の長さ</th></tr>
+          </thead>
+          <tbody id="month-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <p>地名の検索：国土地理院 地名検索 API ／ 時刻の計算：NOAA Solar Calculator の計算式</p>
+    <p>時刻は計算値です（誤差はおおむね ±1 分。標高・山などの地形は考えていません）。</p>
+  </footer>
+
+  <script src="src/sun-calc.js"></script>
+  <script src="src/geocode.js"></script>
+  <script src="src/report.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
