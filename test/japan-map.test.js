@@ -48,8 +48,29 @@ test('projectPoint は地図に載っていない場所・数でない値に nul
   assert.equal(projectPoint(35, undefined), null);
 });
 
-test('主な都市は、地図の陸地の中にある（印が海に出ない）', () => {
-  const missing = MAJOR_CITIES.filter(([, latitude, longitude]) => !isOnLand(latitude, longitude)).map(([name]) => name);
+// 海岸線を約 3km の許容で単純化しているので、岬の先の都市は数 km だけ陸の外になることがある。その許容（度）
+const COASTAL_TOLERANCE_DEGREES = 0.05;
+
+/**
+ * 緯度・経度が、陸地の中か、陸地から COASTAL_TOLERANCE_DEGREES 以内かを調べる。
+ * @param {number} latitude 緯度（度）
+ * @param {number} longitude 経度（度）
+ * @returns {boolean} 陸地とその岸の近くなら true
+ */
+function isNearLand(latitude, longitude) {
+  const offsets = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
+  return offsets.some(([dLat, dLon]) =>
+    isOnLand(latitude + dLat * COASTAL_TOLERANCE_DEGREES, longitude + dLon * COASTAL_TOLERANCE_DEGREES));
+}
+
+test('主な都市は、地図の陸地の上か岸のすぐそばにある（印が海に出ない）', () => {
+  const missing = MAJOR_CITIES.filter(([, latitude, longitude]) => !isNearLand(latitude, longitude)).map(([name]) => name);
+  assert.deepEqual(missing, []);
+});
+
+test('内陸の都市は、陸地の中にある', () => {
+  const inland = ['旭川', '盛岡', '長野', '熊本'];
+  const missing = MAJOR_CITIES.filter(([name]) => inland.includes(name)).filter(([, la, lo]) => !isOnLand(la, lo)).map(([name]) => name);
   assert.deepEqual(missing, []);
 });
 

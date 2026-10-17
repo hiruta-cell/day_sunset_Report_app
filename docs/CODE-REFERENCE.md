@@ -20,7 +20,7 @@
 | `src/sun-calc.js` | 緯度・経度・日付から、日の出・南中・日の入りの時刻を計算する（`window.SunCalc`） |
 | `src/geocode.js` | 国土地理院の地名検索 API で、地名から候補の地点を探す。候補には都道府県名を付ける（`window.Geocode`） |
 | `src/report.js` | 時刻の書式・1日の行・月の表・前日との昼の長さの差・CSV を作る（`window.SunReport`） |
-| `src/japan-map.js` | 簡略化した日本地図（粗い多角形）を SVG に描き、地点の位置に印を付ける。沖縄・奄美は右下の枠に入れる（`window.JapanMap`） |
+| `src/japan-map.js` | 簡略化した日本地図（実際の海岸線を単純化した多角形）を SVG に描き、地点の位置に印を付ける。沖縄・奄美は右下の枠に入れる（`window.JapanMap`） |
 | `src/sun-chart.js` | 太陽の通り道の弧と、一日24時間の昼夜のバーを SVG に描く（`window.SunChart`） |
 | `src/app.js` | 画面の操作（検索 → 選択 → 日付（前後の日・今日）→ 地図・結果・図・表の表示 → CSV の保存） |
 | `test/sun-calc.test.js` | 計算が国立天文台の暦と ±1 分で合うか、白夜・極夜、入力の確認 |
@@ -73,9 +73,7 @@
 | src/japan-map.js | `MAIN_BOUNDS` / `MAIN_SCALE` / `MAIN_LONGITUDE_SCALE` | 定数 | 本土の地図の範囲（北緯30〜45.9度・東経128.6〜148.9度）と、1度あたりの長さ | 緯度・経度を図の位置にする |
 | src/japan-map.js | `INSET_BOUNDS` / `INSET_SCALE` / `INSET_LONGITUDE_SCALE` / `INSET_PADDING` | 定数 | 沖縄・奄美の枠の中の範囲・縮尺・余白 | 同上（枠の中） |
 | src/japan-map.js | `MAP_WIDTH` / `MAP_HEIGHT` / `INSET_FRAME` | 定数（公開） | 地図全体の大きさと、右下の枠の位置・大きさ | 描く大きさ |
-| src/japan-map.js | `HOKKAIDO` / `HONSHU` / `SHIKOKU` / `KYUSHU` / `OKINAWA_MAIN_ISLAND` | 定数 | 主な島の粗い多角形（[経度, 緯度]） | 地図の形 |
-| src/japan-map.js | `MAINLAND_POLYGONS` / `INSET_POLYGONS` | 定数 | 本土・枠の中に描く陸地の多角形の一覧 | 地図の形 |
-| src/japan-map.js | `makeIsland` | 関数 | 小さい島を楕円に近い多角形にする | 地図の形 |
+| src/japan-map.js | `MAINLAND_POLYGONS` / `INSET_POLYGONS` | 定数 | Natural Earth（パブリックドメイン）の 1:5000万の海岸線を、約 3km の許容で単純化した島ごとの [経度, 緯度] の配列。本土用と、沖縄・奄美の枠用 | 地図の形 |
 | src/japan-map.js | `isInBounds` | 関数 | 緯度・経度が範囲の中か | 位置の変換 |
 | src/japan-map.js | `projectToMainland` / `projectToInset` | 関数 | 緯度・経度を本土・枠の中の位置にする | 位置の変換 |
 | src/japan-map.js | `projectPoint` | 関数（公開） | 緯度・経度を地図の位置にする（載っていなければ null） | 印の位置 |
