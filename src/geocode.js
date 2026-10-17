@@ -24,6 +24,18 @@
   // 行政区画（都道府県・市区町村）の名前とみなす語尾。あれば施設の名前を候補から外すために使う
   const ADMINISTRATIVE_SUFFIX_PATTERN = /[都道府県市区町村郡]$/;
 
+  // 都道府県の名前（市区町村コードの上2桁の 01〜47 の順）。候補の名前を「県名」と「地名」に分けたり、県名を補ったりするのに使う
+  const PREFECTURE_NAMES = [
+    '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県', '茨城県', '栃木県', '群馬県',
+    '埼玉県', '千葉県', '東京都', '神奈川県', '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県',
+    '岐阜県', '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県', '奈良県', '和歌山県',
+    '鳥取県', '島根県', '岡山県', '広島県', '山口県', '徳島県', '香川県', '愛媛県', '高知県', '福岡県',
+    '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+  ];
+
+  // 国土地理院の市区町村コード（addressCode）の形。4桁のものは、北海道など上2桁が 0 で始まるコードの先頭の 0 が省かれている
+  const ADDRESS_CODE_PATTERN = /^\d{4,5}$/;
+
   // 日本の範囲とみなす緯度・経度（沖ノ鳥島〜択捉島、与那国島〜南鳥島を含む大まかな四角）
   const JAPAN_BOUNDS = { minLatitude: 20, maxLatitude: 46, minLongitude: 122, maxLongitude: 154 };
 
@@ -40,9 +52,25 @@
   }
 
   /**
+   * 候補の名前や市区町村コードから、都道府県の名前を求める。
+   * @param {string} title 候補の名前（「北海道札幌市」のように県名で始まるものがある）
+   * @param {unknown} addressCode 国土地理院の市区町村コード（施設の名前には付く。文字でも数でもよい）
+   * @returns {string} 都道府県の名前。分からなければ空の文字
+   */
+  function findPrefectureName(title, addressCode) {
+    const fromTitle = PREFECTURE_NAMES.find((prefecture) => title.startsWith(prefecture));
+    if (fromTitle) return fromTitle;
+    const code = addressCode === null || addressCode === undefined ? '' : String(addressCode);
+    if (!ADDRESS_CODE_PATTERN.test(code)) return '';
+    return PREFECTURE_NAMES[Number(code.padStart(5, '0').slice(0, 2)) - 1] || '';
+  }
+
+  /**
    * 国土地理院の応答（GeoJSON の Feature の配列）を、候補の一覧に変える。
    * @param {unknown} features API の応答を JSON として読んだもの
-   * @returns {Array<{name: string, latitude: number, longitude: number}>} 候補（最大 MAX_RESULTS 件、同じ名前は1件だけ）。
+   * @returns {Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>}
+   *   候補（最大 MAX_RESULTS 件、同じ名前は1件だけ）。name は県名を付けた名前（「北海道札幌市」）、
+   *   shortName は県名を除いた名前（「札幌市」）、prefecture は県名（分からなければ空）。
    *   都道府県・市区町村の名前が1件でもあればそれだけを返し、1件もないときだけ消防署などの施設の名前を返す（API の順のまま）
    * 注意：形が違うもの・日本の範囲外の座標は捨てる。応答が配列でなければ空の配列を返す
    */
@@ -59,7 +87,14 @@
       const latitude = Number(coordinates[1]);
       if (!isInJapan(latitude, longitude) || seenNames.has(name)) continue;
       seenNames.add(name);
-      places.push({ name, latitude, longitude });
+      let prefecture = findPrefectureName(name, feature.properties.addressCode);
+      let shortName = name.startsWith(prefecture) ? name.slice(prefecture.length) : name;
+      // 「東京都」だけの名前など、県名を除くと何も残らないときは、県名を分けずに名前のまま使う
+      if (shortName.length === 0) {
+        prefecture = '';
+        shortName = name;
+      }
+      places.push({ name: prefecture + shortName, shortName, prefecture, latitude, longitude });
     }
     const administrative = places.filter((place) => ADMINISTRATIVE_SUFFIX_PATTERN.test(place.name));
     return (administrative.length > 0 ? administrative : places).slice(0, MAX_RESULTS);
@@ -119,7 +154,7 @@
     }
   }
 
-  const api = { searchPlaces, parseGsiResponse, normalizeQuery, isInJapan, MAX_QUERY_LENGTH };
+  const api = { searchPlaces, parseGsiResponse, findPrefectureName, normalizeQuery, isInJapan, MAX_QUERY_LENGTH };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

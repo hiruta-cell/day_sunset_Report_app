@@ -1,13 +1,14 @@
 /*
  * app.js
- * 目的：画面の操作をまとめる（地名の検索 → 候補の選択 → 日付の選択 → 結果と月の表の表示 → CSV の保存）。
- * 前提：sun-calc.js・geocode.js・report.js を先に読み込んでおく（window.SunCalc・Geocode・SunReport を使う）。
+ * 目的：画面の操作をまとめる（地名の検索 → 候補の選択 → 日付の選択 → 日本地図・結果・太陽の通り道・月の表の表示 → CSV の保存）。
+ * 前提：sun-calc.js・geocode.js・report.js・japan-map.js・sun-chart.js を先に読み込んでおく
+ *   （window.SunCalc・Geocode・SunReport・JapanMap・SunChart を使う）。
  * 注意：API から来た地名は textContent で表示する（innerHTML は使わない）。入力した地名は保存・ログ出力しない。
  */
 (function () {
   'use strict';
 
-  const { Geocode, SunReport } = window;
+  const { Geocode, SunReport, SunCalc, JapanMap, SunChart } = window;
 
   // 画面の部品
   const elements = {
@@ -16,14 +17,25 @@
     searchButton: document.getElementById('search-button'),
     placeResults: document.getElementById('place-results'),
     dateInput: document.getElementById('target-date'),
+    prevDayButton: document.getElementById('prev-day-button'),
+    nextDayButton: document.getElementById('next-day-button'),
+    todayButton: document.getElementById('today-button'),
     statusMessage: document.getElementById('status-message'),
     resultSection: document.getElementById('result-section'),
-    resultPlace: document.getElementById('result-place'),
+    japanMap: document.getElementById('japan-map'),
+    mapNote: document.getElementById('map-note'),
+    resultPrefecture: document.getElementById('result-prefecture'),
+    resultPlaceName: document.getElementById('result-place-name'),
     resultDate: document.getElementById('result-date'),
+    resultCoords: document.getElementById('result-coords'),
     resultSunrise: document.getElementById('result-sunrise'),
     resultNoon: document.getElementById('result-noon'),
     resultSunset: document.getElementById('result-sunset'),
     resultLength: document.getElementById('result-length'),
+    resultLengthDelta: document.getElementById('result-length-delta'),
+    chartBlock: document.getElementById('chart-block'),
+    chartCaption: document.getElementById('chart-caption'),
+    sunChart: document.getElementById('sun-chart'),
     monthHeading: document.getElementById('month-heading'),
     monthBody: document.getElementById('month-body'),
     csvButton: document.getElementById('csv-button'),
@@ -34,6 +46,13 @@
 
   // 白夜・極夜のときに表示する説明
   const STATUS_LABELS = { midnightSun: '一日中沈みません（白夜）', polarNight: '一日中昇りません（極夜）' };
+
+  // 地図の下に出す説明
+  const MAP_NOTE_ON_MAP = '簡略化した地図です。位置は目安です。';
+  const MAP_NOTE_OFF_MAP = 'この地点は、簡略化した地図に載っていない場所です。';
+
+  // 1日のミリ秒・1時間のミリ秒（日付の計算に使う）
+  const MILLISECONDS_PER_HOUR = 3600000;
 
   /**
    * 状態のメッセージを出す。
@@ -46,12 +65,37 @@
   }
 
   /**
+   * 日本時間の「いま」を、UTC として読める Date にして返す（getUTC… で日本時間の年月日・時分が取れる）。
+   * @returns {Date} 日本時間を UTC の値として持つ Date
+   */
+  function getNowInJapan() {
+    return new Date(Date.now() + SunReport.JST_UTC_OFFSET_HOURS * MILLISECONDS_PER_HOUR);
+  }
+
+  /**
+   * 年・月・日を、日付の入力欄の形（YYYY-MM-DD）にする。
+   * @param {{year: number, month: number, day: number}} date 日付
+   * @returns {string} 「2026-06-21」の形
+   */
+  function formatDateInput(date) {
+    return `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
+  }
+
+  /**
    * 今日の日付（日本時間）を「YYYY-MM-DD」で返す。
    * @returns {string} 今日の日付
    */
   function getTodayInJapan() {
-    const now = new Date(Date.now() + SunReport.JST_UTC_OFFSET_HOURS * 3600000);
-    return now.toISOString().slice(0, 10);
+    return getNowInJapan().toISOString().slice(0, 10);
+  }
+
+  /**
+   * 日本時間のいまの時刻を、0時からの分で返す。
+   * @returns {number} 0時からの分
+   */
+  function getNowMinutesInJapan() {
+    const now = getNowInJapan();
+    return now.getUTCHours() * 60 + now.getUTCMinutes();
   }
 
   /**
@@ -63,22 +107,31 @@
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value); // 「2026-06-21」の形だけを受け付ける
     if (!match) return null;
     const date = { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
-    return window.SunCalc.isValidDate(date.year, date.month, date.day) ? date : null;
+    return SunCalc.isValidDate(date.year, date.month, date.day) ? date : null;
   }
 
   /**
-   * 検索の結果を、選べるボタンの一覧として出す。
-   * @param {Array<{name: string, latitude: number, longitude: number}>} places 候補の一覧
+   * 検索の結果を、選べるボタンの一覧として出す（県名・地名・緯度経度）。
+   * @param {Array<{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}>} places 候補の一覧
    */
   function renderPlaceResults(places) {
     elements.placeResults.replaceChildren();
-    places.forEach((place, index) => {
+    places.forEach((place) => {
       const item = document.createElement('li');
       const button = document.createElement('button');
       button.type = 'button';
-      button.textContent = place.name;
       button.setAttribute('aria-pressed', 'false');
-      button.dataset.index = String(index);
+      // 県名のない候補でも、3列の並びがずれないよう、県名の欄は空で残す
+      const prefecture = document.createElement('span');
+      prefecture.className = place.prefecture ? 'badge' : 'badge is-empty';
+      prefecture.textContent = place.prefecture;
+      const name = document.createElement('span');
+      name.className = 'place-name';
+      name.textContent = place.shortName;
+      const coords = document.createElement('span');
+      coords.className = 'place-coords';
+      coords.textContent = formatCoordinates(place);
+      button.append(prefecture, name, coords);
       button.addEventListener('click', () => selectPlace(place, button));
       item.appendChild(button);
       elements.placeResults.appendChild(item);
@@ -86,8 +139,17 @@
   }
 
   /**
-   * 候補から地点を選び、結果を出し直す。
-   * @param {{name: string, latitude: number, longitude: number}} place 選んだ地点
+   * 緯度・経度を「北緯35.66° 東経139.74°」の形にする。
+   * @param {{latitude: number, longitude: number}} place 地点
+   * @returns {string} 表示の文字
+   */
+  function formatCoordinates(place) {
+    return `北緯${place.latitude.toFixed(2)}° 東経${place.longitude.toFixed(2)}°`;
+  }
+
+  /**
+   * 候補から地点を選び、結果を出し直して、結果のところまで画面を動かす。
+   * @param {{name: string, shortName: string, prefecture: string, latitude: number, longitude: number}} place 選んだ地点
    * @param {HTMLButtonElement} button 押されたボタン（選んだ印を付ける）
    */
   function selectPlace(place, button) {
@@ -96,10 +158,25 @@
     elements.placeResults.querySelectorAll('button').forEach((other) => other.setAttribute('aria-pressed', 'false'));
     button.setAttribute('aria-pressed', 'true');
     renderResult();
+    if (!elements.resultSection.hidden) elements.resultSection.scrollIntoView({ block: 'start' });
   }
 
   /**
-   * 選んだ地点と日付で、その日の時刻と月の表を出す。地点か日付が足りなければ案内を出す。
+   * 日付を1日ずつ動かす。範囲（1901〜2099年）の外には動かさない。
+   * @param {number} deltaDays 動かす日数（前の日は -1、次の日は +1）
+   */
+  function stepDate(deltaDays) {
+    const date = parseDateInput(elements.dateInput.value);
+    if (!date) return;
+    const moved = new Date(Date.UTC(date.year, date.month - 1, date.day + deltaDays));
+    const next = { year: moved.getUTCFullYear(), month: moved.getUTCMonth() + 1, day: moved.getUTCDate() };
+    if (!SunCalc.isValidDate(next.year, next.month, next.day)) return;
+    elements.dateInput.value = formatDateInput(next);
+    renderResult();
+  }
+
+  /**
+   * 選んだ地点と日付で、日本地図・その日の時刻・太陽の通り道・月の表を出す。地点か日付が足りなければ案内を出す。
    */
   function renderResult() {
     const place = state.selectedPlace;
@@ -115,13 +192,13 @@
     }
 
     const row = SunReport.buildDayRow(date, place.latitude, place.longitude);
-    elements.resultPlace.textContent = place.name;
-    elements.resultDate.textContent =
-      `${date.year}年${date.month}月${date.day}日（${row.weekday}）／緯度 ${place.latitude.toFixed(4)}・経度 ${place.longitude.toFixed(4)}`;
+    renderPlaceSummary(place, date, row);
     elements.resultSunrise.textContent = row.sunrise;
     elements.resultNoon.textContent = row.solarNoon;
     elements.resultSunset.textContent = row.sunset;
     elements.resultLength.textContent = row.dayLength;
+    elements.resultLengthDelta.textContent = SunReport.getDayLengthChangeText(date, place.latitude, place.longitude);
+    renderSunChart(place, date, row);
 
     // 月が変わったときだけ表を作り直す
     const monthKey = `${date.year}-${date.month}`;
@@ -138,7 +215,48 @@
   }
 
   /**
-   * 月の表を出す。
+   * 結果の上の部分（日本地図・県名・地名・日付・緯度経度）を出す。
+   * @param {{shortName: string, prefecture: string, latitude: number, longitude: number}} place 選んだ地点
+   * @param {{year: number, month: number, day: number}} date 日付
+   * @param {{weekday: string}} row buildDayRow の結果
+   */
+  function renderPlaceSummary(place, date, row) {
+    elements.resultPrefecture.textContent = place.prefecture;
+    elements.resultPrefecture.hidden = !place.prefecture;
+    elements.resultPlaceName.textContent = place.shortName;
+    elements.resultDate.textContent = `${date.year}年${date.month}月${date.day}日（${row.weekday}）`;
+    elements.resultCoords.textContent = formatCoordinates(place);
+
+    const isOnMap = JapanMap.render(elements.japanMap, place);
+    elements.mapNote.textContent = isOnMap ? MAP_NOTE_ON_MAP : MAP_NOTE_OFF_MAP;
+    elements.japanMap.setAttribute('aria-label', isOnMap ? `日本地図。${place.prefecture}${place.shortName}の位置` : '日本地図');
+  }
+
+  /**
+   * 太陽の通り道の図を出す。白夜・極夜の日は図を隠す。
+   * @param {{latitude: number, longitude: number}} place 選んだ地点
+   * @param {{year: number, month: number, day: number}} date 日付
+   * @param {{sunrise: string, solarNoon: string, sunset: string, status: string}} row buildDayRow の結果
+   */
+  function renderSunChart(place, date, row) {
+    elements.chartBlock.hidden = row.status !== 'normal';
+    if (row.status !== 'normal') return;
+    const times = SunCalc.computeSunTimes(date, place.latitude, place.longitude, SunReport.JST_UTC_OFFSET_HOURS);
+    const isToday = formatDateInput(date) === getTodayInJapan();
+    elements.chartCaption.textContent = isToday ? '今日の太陽の位置（いま）' : '南中のときの太陽の位置';
+    SunChart.render(elements.sunChart, {
+      sunriseMinutes: times.sunriseMinutes,
+      solarNoonMinutes: times.solarNoonMinutes,
+      sunsetMinutes: times.sunsetMinutes,
+      sunriseText: row.sunrise,
+      noonText: row.solarNoon,
+      sunsetText: row.sunset,
+      nowMinutes: isToday ? getNowMinutesInJapan() : null,
+    });
+  }
+
+  /**
+   * 月の表を出す。日付は、押すとその日の結果に切り替わるボタンにする。
    * @param {Array<object>} rows SunReport.buildMonthRows の結果
    */
   function renderMonthTable(rows) {
@@ -146,11 +264,20 @@
     for (const row of rows) {
       const tr = document.createElement('tr');
       tr.dataset.day = String(row.day);
-      const cells = [`${row.day}日`, row.weekday, row.sunrise, row.solarNoon, row.sunset, row.dayLength];
+      const dayCell = document.createElement('td');
+      const dayButton = document.createElement('button');
+      dayButton.type = 'button';
+      dayButton.className = 'day-button';
+      dayButton.dataset.day = String(row.day);
+      dayButton.textContent = `${row.day}日`;
+      dayCell.appendChild(dayButton);
+      tr.appendChild(dayCell);
+      const cells = [row.weekday, row.sunrise, row.solarNoon, row.sunset, row.dayLength];
       cells.forEach((text, index) => {
         const td = document.createElement('td');
         td.textContent = text;
-        if (index === 1 && row.weekday === '日') td.className = 'weekday-sun';
+        if (index === 0 && row.weekday === '日') td.className = 'weekday-sun';
+        if (index === 0 && row.weekday === '土') td.className = 'weekday-sat';
         tr.appendChild(td);
       });
       elements.monthBody.appendChild(tr);
@@ -158,13 +285,33 @@
   }
 
   /**
-   * 月の表で、選んだ日の行に印を付ける。
+   * 月の表で、選んだ日の行に印を付け、表の中でその行が見えるところまで動かす。
    * @param {number} day 日（1〜31）
    */
   function highlightDay(day) {
+    let selectedRow = null;
     elements.monthBody.querySelectorAll('tr').forEach((tr) => {
-      tr.classList.toggle('is-selected', tr.dataset.day === String(day));
+      const isSelected = tr.dataset.day === String(day);
+      tr.classList.toggle('is-selected', isSelected);
+      if (isSelected) selectedRow = tr;
     });
+    const wrap = elements.monthBody.closest('.table-wrap');
+    // 結果が隠れているうちは大きさが 0 なので、表を動かすのは見えているときだけ
+    if (selectedRow && wrap && wrap.clientHeight > 0) {
+      wrap.scrollTop = Math.max(0, selectedRow.offsetTop - wrap.clientHeight / 2);
+    }
+  }
+
+  /**
+   * 月の表の日付のボタンが押されたとき、その日の結果に切り替える。
+   * @param {MouseEvent} event クリック
+   */
+  function handleMonthBodyClick(event) {
+    const button = event.target.closest('button[data-day]');
+    const date = parseDateInput(elements.dateInput.value);
+    if (!button || !date) return;
+    elements.dateInput.value = formatDateInput({ year: date.year, month: date.month, day: Number(button.dataset.day) });
+    renderResult();
   }
 
   /**
@@ -202,8 +349,8 @@
   function handleCsvClick() {
     if (!state.selectedPlace || state.monthRows.length === 0) return;
     const csv = SunReport.toCsv(state.monthRows, state.selectedPlace);
-    // 先頭の ﻿（BOM）は、Excel で開いたときに文字化けさせないための印
-    const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8' });
+    // 先頭の \uFEFF（BOM）は、Excel で開いたときに文字化けさせないための印
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const [year, month] = state.monthKey.split('-');
@@ -218,6 +365,13 @@
   elements.dateInput.value = getTodayInJapan();
   elements.searchForm.addEventListener('submit', handleSearchSubmit);
   elements.dateInput.addEventListener('change', renderResult);
+  elements.prevDayButton.addEventListener('click', () => stepDate(-1));
+  elements.nextDayButton.addEventListener('click', () => stepDate(1));
+  elements.todayButton.addEventListener('click', () => {
+    elements.dateInput.value = getTodayInJapan();
+    renderResult();
+  });
+  elements.monthBody.addEventListener('click', handleMonthBodyClick);
   elements.csvButton.addEventListener('click', handleCsvClick);
   showStatus('地名を検索して、候補から地点を選んでください。');
 })();

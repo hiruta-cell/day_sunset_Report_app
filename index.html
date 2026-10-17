@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <!--
   index.html
-  目的：日の出・日の入りレポートの画面。地名を検索して地点を選び、日付を選ぶと、その日の時刻とその月の一覧を出す。
+  目的：日の出・日の入りレポートの画面。地名を検索して地点を選び、日付を選ぶと、日本地図の上の位置・その日の時刻・太陽の通り道・その月の一覧を出す。
   注意：通信先は国土地理院の地名検索 API だけに限る（下の Content-Security-Policy の connect-src）。
+        図やアイコンは、このファイルの中の SVG と src/ の JavaScript が描く（外部の画像は読み込まない）。
 -->
 <html lang="ja">
 <head>
@@ -16,15 +17,25 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="page-header">
-    <h1>日の出・日の入りレポート</h1>
-    <p class="lead">市区町村名で地点を探し、日付を選ぶと、日の出・日の入りの時刻（日本時間）を表示します。</p>
+  <header class="hero">
+    <div class="hero-inner">
+      <div>
+        <h1>日の出・日の入りレポート</h1>
+        <p class="lead">市区町村名で地点を探し、日付を選ぶと、日の出・日の入りの時刻（日本時間）を地図と図で表示します。</p>
+      </div>
+      <!-- 飾りの太陽（読み上げは不要） -->
+      <svg class="hero-sun" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+        <circle cx="32" cy="32" r="12" fill="currentColor"/>
+        <path d="M32 6v8M32 50v8M6 32h8M50 32h8M13.6 13.6l5.6 5.6M44.8 44.8l5.6 5.6M13.6 50.4l5.6-5.6M44.8 19.2l5.6-5.6"
+              fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      </svg>
+    </div>
   </header>
 
   <main>
     <!-- 1. 地点を探す -->
     <section class="card" aria-labelledby="search-heading">
-      <h2 id="search-heading">1. 地点を探す</h2>
+      <h2 id="search-heading"><span class="step-number" aria-hidden="true">1</span>地点を探す</h2>
       <form id="search-form" class="search-form" novalidate>
         <label for="place-query" class="visually-hidden">地名</label>
         <input id="place-query" type="search" maxlength="50" placeholder="例：札幌市、横浜市中区" autocomplete="off" required>
@@ -36,9 +47,14 @@
 
     <!-- 2. 日付を選ぶ -->
     <section class="card" aria-labelledby="date-heading">
-      <h2 id="date-heading">2. 日付を選ぶ</h2>
-      <label for="target-date" class="visually-hidden">日付</label>
-      <input id="target-date" type="date" min="1901-01-01" max="2099-12-31" required>
+      <h2 id="date-heading"><span class="step-number" aria-hidden="true">2</span>日付を選ぶ</h2>
+      <div class="date-picker">
+        <button id="prev-day-button" type="button" class="button-secondary" aria-label="前の日">‹</button>
+        <label for="target-date" class="visually-hidden">日付</label>
+        <input id="target-date" type="date" min="1901-01-01" max="2099-12-31" required>
+        <button id="next-day-button" type="button" class="button-secondary" aria-label="次の日">›</button>
+        <button id="today-button" type="button" class="button-secondary">今日</button>
+      </div>
     </section>
 
     <!-- 状態のメッセージ（読み上げソフトにも伝える） -->
@@ -46,20 +62,51 @@
 
     <!-- 3. 結果 -->
     <section id="result-section" class="card" aria-labelledby="result-heading" hidden>
-      <h2 id="result-heading">3. 結果</h2>
-      <p id="result-place" class="result-place"></p>
-      <p id="result-date" class="result-date"></p>
+      <h2 id="result-heading"><span class="step-number" aria-hidden="true">3</span>結果</h2>
+
+      <div class="result-head">
+        <figure class="japan-map-figure">
+          <svg id="japan-map" class="japan-map" role="img" aria-label="日本地図"></svg>
+          <figcaption id="map-note" class="map-note"></figcaption>
+        </figure>
+        <div class="result-summary">
+          <p class="result-place"><span id="result-prefecture" class="badge" hidden></span><span id="result-place-name"></span></p>
+          <p id="result-date" class="result-date"></p>
+          <p id="result-coords" class="result-coords"></p>
+        </div>
+      </div>
+
       <dl class="sun-times">
-        <div class="sun-time sunrise"><dt>日の出</dt><dd id="result-sunrise">--:--</dd></div>
-        <div class="sun-time noon"><dt>南中</dt><dd id="result-noon">--:--</dd></div>
-        <div class="sun-time sunset"><dt>日の入り</dt><dd id="result-sunset">--:--</dd></div>
-        <div class="sun-time length"><dt>昼の長さ</dt><dd id="result-length">--</dd></div>
+        <div class="sun-time sunrise">
+          <svg class="time-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 4v6M9 7l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <dt>日の出</dt><dd id="result-sunrise">--:--</dd>
+        </div>
+        <div class="sun-time noon">
+          <svg class="time-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <dt>南中</dt><dd id="result-noon">--:--</dd>
+        </div>
+        <div class="sun-time sunset">
+          <svg class="time-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 4v6M9 7l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <dt>日の入り</dt><dd id="result-sunset">--:--</dd>
+        </div>
+        <div class="sun-time length">
+          <svg class="time-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <dt>昼の長さ</dt><dd id="result-length">--</dd>
+          <dd id="result-length-delta" class="length-delta"></dd>
+        </div>
       </dl>
+
+      <!-- 太陽の通り道の図（白夜・極夜の日は隠す） -->
+      <div id="chart-block" class="chart-block">
+        <p id="chart-caption" class="chart-caption"></p>
+        <svg id="sun-chart" class="sun-chart" role="img" aria-label="太陽の通り道"></svg>
+      </div>
 
       <div class="month-header">
         <h3 id="month-heading">その月の一覧</h3>
         <button id="csv-button" type="button">CSV で保存</button>
       </div>
+      <p class="note">日付を押すと、その日の結果に切り替わります。</p>
       <div class="table-wrap">
         <table class="month-table" aria-labelledby="month-heading">
           <thead>
@@ -73,12 +120,14 @@
 
   <footer class="page-footer">
     <p>地名の検索：国土地理院 地名検索 API ／ 時刻の計算：NOAA Solar Calculator の計算式</p>
-    <p>時刻は計算値です（誤差はおおむね ±1 分。標高・山などの地形は考えていません）。</p>
+    <p>時刻は計算値です（誤差はおおむね ±1 分。標高・山などの地形は考えていません）。日本地図は簡略化した図で、位置は目安です。</p>
   </footer>
 
   <script src="src/sun-calc.js"></script>
   <script src="src/geocode.js"></script>
   <script src="src/report.js"></script>
+  <script src="src/japan-map.js"></script>
+  <script src="src/sun-chart.js"></script>
   <script src="src/app.js"></script>
 </body>
 </html>

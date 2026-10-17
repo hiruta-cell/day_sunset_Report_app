@@ -1,7 +1,7 @@
 /*
  * style.css
- * 目的：日の出・日の入りレポートの見た目。スマホ・PC の両方で見やすくし、ダーク表示にも対応する。
- * 注意：色・余白は :root の CSS 変数にまとめる。
+ * 目的：日の出・日の入りレポートの見た目。朝焼けのヘッダー・カード・日本地図・太陽の通り道の図を、スマホ・PC の両方で見やすくし、ダーク表示にも対応する。
+ * 注意：色・余白は :root の CSS 変数にまとめる。CSP（style-src 'self'）のため、HTML や JavaScript から style 属性は使わない（色は図のクラスで決める）。
  */
 
 :root {
@@ -14,10 +14,27 @@
   --color-accent-text: #ffffff;
   --color-sunset: #6b3fa0;        /* 日の入りの色 */
   --color-noon: #a16207;          /* 南中の色 */
-  --color-highlight: #fdecd8;     /* 表で選んだ日の行 */
+  --color-length: #1d5fa8;        /* 昼の長さの色 */
+  --color-sat: #1d5fa8;           /* 表の土曜日 */
+  --color-highlight: #fdecd8;     /* 表で選んだ日の行・県名の札 */
   --color-error: #b42318;
+  --tint-sunrise: #fff1e2;        /* 時刻の箱の背景 */
+  --tint-noon: #fff6d6;
+  --tint-sunset: #f1e9fb;
+  --tint-length: #e8f1fb;
+  --hero-from: #b34a08;           /* 朝焼けのヘッダー */
+  --hero-via: #a3315f;
+  --hero-to: #4b3a8f;
+  --map-sea: #dbe9f4;             /* 日本地図 */
+  --map-land: #ece0c2;
+  --map-land-stroke: #b9a679;
+  --sky-top: #7fb4e6;             /* 太陽の通り道の図 */
+  --sky-bottom: #fbd9a6;
+  --ground: #7c9a68;
+  --sun: #f59e0b;
   --radius: 10px;
   --space: 16px;
+  --shadow: 0 2px 10px rgba(34, 38, 43, 0.07);
   --font: system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", sans-serif;
 }
 
@@ -33,12 +50,31 @@
     --color-accent-text: #1a1a1a;
     --color-sunset: #b794f4;
     --color-noon: #facc15;
+    --color-length: #7cb7f0;
+    --color-sat: #7cb7f0;
     --color-highlight: #3b2a1c;
     --color-error: #ff8a80;
+    --tint-sunrise: #3b2a1c;
+    --tint-noon: #3a3315;
+    --tint-sunset: #2c2440;
+    --tint-length: #1c2c3f;
+    --hero-from: #7a3306;
+    --hero-via: #6f2244;
+    --hero-to: #2f2660;
+    --map-sea: #1b2733;
+    --map-land: #3c3b33;
+    --map-land-stroke: #66624f;
+    --sky-top: #1e2a4a;
+    --sky-bottom: #6a4140;
+    --ground: #2f4a3a;
+    --sun: #fbbf24;
+    --shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   }
 }
 
 * { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
 
 body {
   margin: 0;
@@ -48,15 +84,42 @@ body {
   line-height: 1.6;
 }
 
-.page-header, main, .page-footer {
+/* ヘッダー：朝焼けの色のグラデーションと、ゆっくり回る太陽 */
+.hero {
+  background: linear-gradient(120deg, var(--hero-from), var(--hero-via) 55%, var(--hero-to));
+  color: #ffffff;
+}
+
+.hero-inner {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px var(--space) 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space);
+}
+
+.hero h1 { margin: 0 0 6px; font-size: 1.7rem; letter-spacing: 0.02em; }
+.lead { margin: 0; color: rgba(255, 255, 255, 0.9); }
+
+.hero-sun {
+  flex: none;
+  width: 76px;
+  height: 76px;
+  color: #ffd89a;
+  filter: drop-shadow(0 0 14px rgba(255, 200, 120, 0.7));
+  animation: sun-spin 80s linear infinite;
+}
+
+/* 本文：ヘッダーに少し重ねる */
+main, .page-footer {
   max-width: 760px;
   margin: 0 auto;
   padding: 0 var(--space);
 }
 
-.page-header { padding-top: 24px; }
-.page-header h1 { margin: 0 0 4px; font-size: 1.6rem; }
-.lead { margin: 0 0 var(--space); color: var(--color-muted); }
+main { position: relative; margin-top: -36px; }
 
 .card {
   background: var(--color-surface);
@@ -64,9 +127,24 @@ body {
   border-radius: var(--radius);
   padding: var(--space);
   margin-bottom: var(--space);
+  box-shadow: var(--shadow);
 }
 
-.card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+.card h2 { margin: 0 0 12px; font-size: 1.1rem; display: flex; align-items: center; }
+
+/* 手順の番号の丸 */
+.step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 1.7em;
+  height: 1.7em;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  font-size: 0.85rem;
+  font-weight: bold;
+}
 
 .search-form { display: flex; gap: 8px; }
 
@@ -89,31 +167,101 @@ button {
   background: var(--color-accent);
   color: var(--color-accent-text);
   cursor: pointer;
+  transition: filter 0.15s;
 }
 
+button:hover:not(:disabled) { filter: brightness(1.1); }
 button:disabled { opacity: 0.6; cursor: wait; }
 button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accent); outline-offset: 2px; }
 
+/* 枠だけのボタン（前の日・次の日・今日） */
+.button-secondary {
+  background: transparent;
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.button-secondary:hover:not(:disabled) { background: var(--color-highlight); filter: none; }
+
+.date-picker { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.date-picker input[type="date"] { flex: 1; min-width: 150px; }
+.date-picker .button-secondary[aria-label] { font-size: 1.2rem; line-height: 1; padding: 8px 14px; }
+
 .note { margin: 8px 0 0; font-size: 0.85rem; color: var(--color-muted); }
+
+/* 県名の札 */
+.badge {
+  display: inline-block;
+  padding: 0 10px;
+  border: 1px solid var(--color-accent);
+  border-radius: 999px;
+  background: var(--color-highlight);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  font-weight: bold;
+  line-height: 1.7;
+  white-space: nowrap;
+}
+.badge.is-empty { visibility: hidden; }
 
 /* 検索結果の候補 */
 .place-results { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.place-results li { animation: fade-up 0.25s ease-out both; }
 .place-results button {
+  display: grid;
+  grid-template-columns: 6.5em 1fr auto;
+  gap: 10px;
+  align-items: center;
   width: 100%;
   text-align: left;
   background: var(--color-bg);
   color: var(--color-text);
   border: 1px solid var(--color-border);
 }
+.place-results button:hover:not(:disabled) { border-color: var(--color-accent); filter: none; }
 .place-results button[aria-pressed="true"] { border-color: var(--color-accent); box-shadow: inset 4px 0 0 var(--color-accent); }
+.place-results .badge { text-align: center; }
+.place-name { font-weight: bold; }
+.place-coords { font-size: 0.78rem; color: var(--color-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .status-message { min-height: 1.6em; margin: 0 0 var(--space); color: var(--color-muted); }
 .status-message.is-error { color: var(--color-error); font-weight: bold; }
 
 /* 結果 */
-.result-place { margin: 0; font-weight: bold; font-size: 1.1rem; }
-.result-date { margin: 0 0 12px; color: var(--color-muted); }
+#result-section:not([hidden]) { animation: fade-up 0.35s ease-out; }
 
+.result-head {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) 1fr;
+  gap: var(--space);
+  align-items: center;
+  margin-bottom: var(--space);
+}
+
+.japan-map-figure { margin: 0; }
+.japan-map { display: block; width: 100%; height: auto; }
+.map-note { margin-top: 4px; font-size: 0.78rem; color: var(--color-muted); }
+
+/* 日本地図の色 */
+.map-sea { fill: var(--map-sea); }
+.map-land { fill: var(--map-land); stroke: var(--map-land-stroke); stroke-width: 0.8; stroke-linejoin: round; }
+.map-inset-frame { fill: var(--map-sea); stroke: var(--map-land-stroke); stroke-width: 0.8; }
+.map-inset-label { fill: var(--color-muted); font-size: 7px; }
+.map-marker { fill: var(--color-accent); stroke: #ffffff; stroke-width: 1.5; }
+.map-marker-ring {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.5;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: marker-pulse 1.8s ease-out infinite;
+}
+
+.result-place { margin: 0; font-weight: bold; font-size: 1.4rem; line-height: 1.4; }
+.result-place .badge { margin-right: 8px; vertical-align: middle; }
+.result-date { margin: 4px 0 0; font-size: 1.05rem; }
+.result-coords { margin: 2px 0 0; font-size: 0.85rem; color: var(--color-muted); font-variant-numeric: tabular-nums; }
+
+/* 時刻の箱 */
 .sun-times {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -124,25 +272,67 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accen
 .sun-time {
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  padding: 10px;
+  padding: 10px 6px;
   text-align: center;
 }
 .sun-time dt { font-size: 0.85rem; color: var(--color-muted); }
 .sun-time dd { margin: 0; font-size: 1.5rem; font-weight: bold; font-variant-numeric: tabular-nums; }
-.sun-time.sunrise dd { color: var(--color-accent); }
-.sun-time.noon dd { color: var(--color-noon); }
-.sun-time.sunset dd { color: var(--color-sunset); }
-.sun-time.length dd { font-size: 1.15rem; line-height: 2.2rem; }
+.time-icon { display: block; width: 28px; height: 28px; margin: 0 auto 2px; }
+.sun-time.sunrise { background: var(--tint-sunrise); color: var(--color-accent); }
+.sun-time.noon { background: var(--tint-noon); color: var(--color-noon); }
+.sun-time.sunset { background: var(--tint-sunset); color: var(--color-sunset); }
+.sun-time.length { background: var(--tint-length); color: var(--color-length); }
+.sun-time.length dd { font-size: 1.1rem; line-height: 1.7rem; }
+.sun-time.length .length-delta { font-size: 0.75rem; font-weight: normal; line-height: 1.2; min-height: 1.2em; }
 
+/* 太陽の通り道の図 */
+.chart-block { margin-bottom: var(--space); }
+.chart-caption { margin: 0 0 4px; font-size: 0.9rem; color: var(--color-muted); text-align: center; }
+.sun-chart { display: block; width: 100%; max-width: 520px; height: auto; margin: 0 auto; }
+.chart-sky-top { stop-color: var(--sky-top); }
+.chart-sky-bottom { stop-color: var(--sky-bottom); }
+.chart-ground { fill: var(--ground); }
+.chart-track { fill: none; stroke: rgba(255, 255, 255, 0.7); stroke-width: 2; stroke-dasharray: 4 4; }
+.chart-passed { fill: none; stroke: var(--sun); stroke-width: 3; stroke-linecap: round; }
+.chart-sun { fill: var(--sun); stroke: #ffffff; stroke-width: 2; }
+.chart-sun.is-night { opacity: 0.4; }
+.chart-sun-halo { fill: var(--sun); opacity: 0.25; }
+.chart-label { fill: var(--color-text); font-size: 11px; font-weight: bold; }
+.chart-caption-text { fill: var(--color-muted); font-size: 10px; }
+.chart-bar-night { fill: var(--hero-to); }
+.chart-bar-day { fill: var(--sun); }
+.chart-bar-now { fill: var(--color-text); }
+.chart-tick { fill: var(--color-muted); font-size: 9px; }
+
+/* 月の表 */
 .month-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .month-header h3 { margin: 0; font-size: 1rem; }
 
-.table-wrap { overflow-x: auto; margin-top: 8px; }
+.table-wrap {
+  position: relative;
+  max-height: 420px;
+  overflow: auto;
+  margin-top: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
 .month-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.month-table th, .month-table td { padding: 6px 8px; border-bottom: 1px solid var(--color-border); text-align: center; white-space: nowrap; }
-.month-table th { font-size: 0.85rem; color: var(--color-muted); }
+.month-table th, .month-table td { padding: 5px 8px; border-bottom: 1px solid var(--color-border); text-align: center; white-space: nowrap; }
+.month-table th { position: sticky; top: 0; z-index: 1; background: var(--color-surface); font-size: 0.85rem; color: var(--color-muted); }
+.month-table tbody tr:hover td { background: var(--tint-noon); }
 .month-table tr.is-selected td { background: var(--color-highlight); font-weight: bold; }
 .month-table td.weekday-sun { color: var(--color-error); }
+.month-table td.weekday-sat { color: var(--color-sat); }
+
+/* 表の日付のボタン（ふだんは文字のように見せる） */
+.day-button {
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  font-weight: inherit;
+}
+.day-button:hover:not(:disabled) { border-color: var(--color-accent); filter: none; }
 
 .page-footer { padding-bottom: 32px; font-size: 0.8rem; color: var(--color-muted); }
 .page-footer p { margin: 0 0 4px; }
@@ -153,10 +343,36 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--color-accen
   clip: rect(0 0 0 0); white-space: nowrap;
 }
 
-/* スマホ：時刻の箱を2列にし、表の余白と文字を詰めて全部の列を画面に収める */
+/* 動き */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes marker-pulse {
+  from { transform: scale(0.6); opacity: 0.9; }
+  to { transform: scale(2.4); opacity: 0; }
+}
+@keyframes sun-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 動きを減らす設定の端末では、動きを止める */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* スマホ：地図を上に、時刻の箱を2列にし、表の余白と文字を詰めて全部の列を画面に収める */
 @media (max-width: 560px) {
+  .hero h1 { font-size: 1.35rem; }
+  .hero-sun { width: 52px; height: 52px; }
+  .result-head { grid-template-columns: 1fr; }
+  .japan-map-figure { max-width: 280px; margin: 0 auto; }
   .sun-times { grid-template-columns: repeat(2, 1fr); }
+  .place-results button { grid-template-columns: 5.5em 1fr; }
+  .place-coords { display: none; }
   .month-header { flex-wrap: wrap; }
   .month-table { font-size: 0.82rem; }
-  .month-table th, .month-table td { padding: 6px 3px; }
+  .month-table th, .month-table td { padding: 5px 3px; }
+  .day-button { padding: 1px 4px; }
 }

@@ -44,6 +44,37 @@
   }
 
   /**
+   * 昼の長さの前日との差（分）を、「前日より +1分28秒」の文字にする（秒は四捨五入）。
+   * @param {number} deltaMinutes 今日の昼の長さ − 前日の昼の長さ（分、小数あり）
+   * @returns {string} 「前日より +1分28秒」「前日より -45秒」の形。差が0秒なら「前日と同じ」
+   */
+  function formatDurationChange(deltaMinutes) {
+    const totalSeconds = Math.round(Math.abs(deltaMinutes) * 60);
+    if (totalSeconds === 0) return '前日と同じ';
+    const sign = deltaMinutes > 0 ? '+' : '-';
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `前日より ${sign}${minutes > 0 ? `${minutes}分` : ''}${seconds > 0 ? `${seconds}秒` : ''}`;
+  }
+
+  /**
+   * ある日の昼の長さが、前日より何分何秒変わったかを文字にする。
+   * @param {{year: number, month: number, day: number}} date 日付
+   * @param {number} latitude 緯度（度）
+   * @param {number} longitude 経度（度）
+   * @returns {string} formatDurationChange の文字。前日が対象の年の範囲外・白夜や極夜のときは空の文字
+   */
+  function getDayLengthChangeText(date, latitude, longitude) {
+    const previousDate = new Date(Date.UTC(date.year, date.month - 1, date.day - 1));
+    const previous = { year: previousDate.getUTCFullYear(), month: previousDate.getUTCMonth() + 1, day: previousDate.getUTCDate() };
+    if (!SunCalc.isValidDate(previous.year, previous.month, previous.day)) return '';
+    const today = SunCalc.computeSunTimes(date, latitude, longitude, JST_UTC_OFFSET_HOURS);
+    const before = SunCalc.computeSunTimes(previous, latitude, longitude, JST_UTC_OFFSET_HOURS);
+    if (today.status !== 'normal' || before.status !== 'normal') return '';
+    return formatDurationChange(today.dayLengthMinutes - before.dayLengthMinutes);
+  }
+
+  /**
    * 1日分の計算結果を、表の1行の形にする。
    * @param {{year: number, month: number, day: number}} date 日付
    * @param {number} latitude 緯度（度）
@@ -113,7 +144,7 @@
     return `${lines.join('\r\n')}\r\n`;
   }
 
-  const api = { formatTime, formatDuration, buildDayRow, buildMonthRows, toCsv, escapeCsvCell, JST_UTC_OFFSET_HOURS };
+  const api = { formatTime, formatDuration, formatDurationChange, getDayLengthChangeText, buildDayRow, buildMonthRows, toCsv, escapeCsvCell, JST_UTC_OFFSET_HOURS };
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   } else {

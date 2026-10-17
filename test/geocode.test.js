@@ -7,7 +7,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { searchPlaces, parseGsiResponse, normalizeQuery } = require('../src/geocode.js');
+const { searchPlaces, parseGsiResponse, findPrefectureName, normalizeQuery } = require('../src/geocode.js');
 
 // 国土地理院の応答と同じ形の見本（座標は [経度, 緯度]）
 const SAMPLE_RESPONSE = [
@@ -43,8 +43,52 @@ test('normalizeQuery は空白を取り、空・長すぎる入力を null に�
 
 test('parseGsiResponse は緯度・経度の順を直し、重複・範囲外・壊れた行を捨てる', () => {
   const places = parseGsiResponse(SAMPLE_RESPONSE);
-  assert.deepEqual(places, [{ name: '北海道札幌市', latitude: 43.062077, longitude: 141.354401 }]);
+  assert.deepEqual(places, [
+    { name: '北海道札幌市', shortName: '札幌市', prefecture: '北海道', latitude: 43.062077, longitude: 141.354401 },
+  ]);
   assert.deepEqual(parseGsiResponse({ error: 'x' }), []);
+});
+
+test('parseGsiResponse は名前が県名で始まるとき、県名を切り分ける（重複して付けない）', () => {
+  const point = { coordinates: [139.48, 35.67], type: 'Point' };
+  const [place] = parseGsiResponse([{ geometry: point, properties: { title: '東京都府中市', addressCode: '' } }]);
+  assert.equal(place.name, '東京都府中市');
+  assert.equal(place.prefecture, '東京都');
+  assert.equal(place.shortName, '府中市');
+});
+
+test('parseGsiResponse は施設の名前に、市区町村コードから県名を付ける（4桁は先頭の 0 が省かれている）', () => {
+  const point = { coordinates: [141.35, 43.06], type: 'Point' };
+  const features = [
+    { geometry: point, properties: { title: '架空市役所', addressCode: '1105' } }, // 01105 → 北海道
+    { geometry: point, properties: { title: '架空町役場', addressCode: '47201' } }, // 沖縄県
+    { geometry: point, properties: { title: '架空村役場', addressCode: 13206 } }, // 数でも可 → 東京都
+    { geometry: point, properties: { title: '架空センター', addressCode: '' } }, // 分からない
+  ];
+  const places = parseGsiResponse(features);
+  assert.deepEqual(
+    places.map((place) => [place.name, place.prefecture, place.shortName]),
+    [
+      ['北海道架空市役所', '北海道', '架空市役所'],
+      ['沖縄県架空町役場', '沖縄県', '架空町役場'],
+      ['東京都架空村役場', '東京都', '架空村役場'],
+      ['架空センター', '', '架空センター'],
+    ]
+  );
+});
+
+test('parseGsiResponse は「東京都」だけの名前を、県名と地名に分けない', () => {
+  const point = { coordinates: [139.69, 35.69], type: 'Point' };
+  const [place] = parseGsiResponse([{ geometry: point, properties: { title: '東京都' } }]);
+  assert.deepEqual([place.name, place.shortName, place.prefecture], ['東京都', '東京都', '']);
+});
+
+test('findPrefectureName は範囲外・おかしなコードに空の文字を返す', () => {
+  assert.equal(findPrefectureName('架空', '99999'), '');
+  assert.equal(findPrefectureName('架空', '00001'), '');
+  assert.equal(findPrefectureName('架空', 'abc'), '');
+  assert.equal(findPrefectureName('架空', null), '');
+  assert.equal(findPrefectureName('京都府京都市', ''), '京都府');
 });
 
 test('parseGsiResponse は市区町村の名前があれば、施設の名前を外す', () => {

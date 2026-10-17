@@ -7,7 +7,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { formatTime, formatDuration, buildMonthRows, toCsv, escapeCsvCell } = require('../src/report.js');
+const {
+  formatTime, formatDuration, formatDurationChange, getDayLengthChangeText, buildMonthRows, toCsv, escapeCsvCell,
+} = require('../src/report.js');
 
 // 架空の地点（座標は東京付近）
 const SAMPLE_PLACE = { name: '架空県サンプル市', latitude: 35.6581, longitude: 139.7414 };
@@ -47,4 +49,19 @@ test('toCsv は地点・注記・見出し・毎日の行を CRLF で出す', ()
   assert.equal(lines[2], '"日付","曜日","日の出","南中","日の入り","昼の長さ"');
   assert.equal(lines.length, 3 + 30 + 1); // 前の3行 ＋ 30日 ＋ 最後の改行の後の空
   assert.match(lines[23], /^"2026-06-21","日","04:2\d","11:4\d","1[89]:\d\d","14時間\d\d分"$/);
+});
+
+test('formatDurationChange は前日との差を「前日より +◯分◯秒」にする', () => {
+  assert.equal(formatDurationChange(1.5), '前日より +1分30秒');
+  assert.equal(formatDurationChange(-0.75), '前日より -45秒');
+  assert.equal(formatDurationChange(-2), '前日より -2分');
+  assert.equal(formatDurationChange(0), '前日と同じ');
+  assert.equal(formatDurationChange(0.001), '前日と同じ'); // 0.06 秒は 0 秒に丸まる
+});
+
+test('getDayLengthChangeText は春分前は伸び、夏至後は縮み、範囲外・白夜・極夜は空にする', () => {
+  assert.match(getDayLengthChangeText({ year: 2026, month: 3, day: 1 }, 35.6581, 139.7414), /^前日より \+/);
+  assert.match(getDayLengthChangeText({ year: 2026, month: 7, day: 1 }, 35.6581, 139.7414), /^前日より -/);
+  assert.equal(getDayLengthChangeText({ year: 1901, month: 1, day: 1 }, 35.6581, 139.7414), ''); // 前日が範囲外
+  assert.equal(getDayLengthChangeText({ year: 2026, month: 12, day: 21 }, 80, 139), ''); // 極夜
 });
